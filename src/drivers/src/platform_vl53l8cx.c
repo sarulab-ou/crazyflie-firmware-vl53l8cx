@@ -78,7 +78,7 @@ uint16_t Ser_IT()
 
     if (digitalRead(CS2) == LOW)
     {
-        DEBUG_PRINT("Ser_IT: CS2 LOW\n");
+        // DEBUG_PRINT("Ser_IT: CS2 LOW\n");
         return 0;
     }
     uint8_t read_addr_high = (uint8_t)((BckDev >> 8) & 0xFF);
@@ -246,8 +246,8 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
             spiExchange(1, 0x00, &rD);  // ダミー送信
             if (rD != p_values[offset + n])
             {
-                DEBUG_PRINT("WrMulti failed :offset %lu (expected %02X, got %02X)\n", offset + n, p_values[offset + n],
-                            rD);
+                // DEBUG_PRINT("WrMulti failed :offset %lu (expected %02X, got %02X)\n", offset + n, p_values[offset + n],
+                //             rD);
             }
         }
         cs_high(CS1);
@@ -310,7 +310,7 @@ uint8_t VL53L8CX_WrMultiFW(VL53L8CX_Platform *p_platform, uint16_t RegisterAdres
             spiExchange(1, 0x00, &rD);  // ダミー送信
             if (rD != p_values[offset + n])
             {
-                DEBUG_PRINT("FW fail at %lu ( exp %02X, got %02X)\n", offset + n, p_values[offset + n], rD);
+                // DEBUG_PRINT("FW fail at %lu ( exp %02X, got %02X)\n", offset + n, p_values[offset + n], rD);
             }
         }
         cs_high(CS1);
@@ -472,54 +472,54 @@ void vTaskDelay_for_spi_pause(uint32_t TimeMs)
     spiBeginTransaction(SPI_BAUDRATE_2MHZ);
 }
 
-/* ===== newlib I/O stubs for vTaskList() support ===== */
-int _write(int file, const char *ptr, int len)
-{
-    (void)file;
-    for (int i = 0; i < len; i++)
-    {
-        DEBUG_PRINT("%c", ptr[i]);
-    }
-    return len;
-}
+// /* ===== newlib I/O stubs for vTaskList() support ===== */
+// int _write(int file, const char *ptr, int len)
+// {
+//     (void)file;
+//     for (int i = 0; i < len; i++)
+//     {
+//         DEBUG_PRINT("%c", ptr[i]);
+//     }
+//     return len;
+// }
 
-int _read(int file, char *ptr, int len)
-{
-    (void)file;
-    (void)ptr;
-    (void)len;
-    return 0;
-}
+// int _read(int file, char *ptr, int len)
+// {
+//     (void)file;
+//     (void)ptr;
+//     (void)len;
+//     return 0;
+// }
 
-int _close(int file)
-{
-    (void)file;
-    return 0;
-}
+// int _close(int file)
+// {
+//     (void)file;
+//     return 0;
+// }
 
-int _lseek(int file, int ptr, int dir)
-{
-    (void)file;
-    (void)ptr;
-    (void)dir;
-    return 0;
-}
+// int _lseek(int file, int ptr, int dir)
+// {
+//     (void)file;
+//     (void)ptr;
+//     (void)dir;
+//     return 0;
+// }
 
-int _fstat(int file, void *st)
-{
-    (void)file;
-    (void)st;
-    return 0;
-}
+// int _fstat(int file, void *st)
+// {
+//     (void)file;
+//     (void)st;
+//     return 0;
+// }
 
-int _isatty(int file)
-{
-    (void)file;
-    return 1;
-}
+// int _isatty(int file)
+// {
+//     (void)file;
+//     return 1;
+// }
 
-void *_sbrk(int incr)
-{
-    (void)incr;
-    return (void *)-1;
-}
+// void *_sbrk(int incr)
+// {
+//     (void)incr;
+//     return (void *)-1;
+// }

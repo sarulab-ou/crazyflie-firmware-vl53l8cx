@@ -23,14 +23,13 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-static void led_debug(int seconds)
+void led_debug(int seconds, int frequency, led_t led)
 {
-    int frequency = 10;
     for (int i = 0; i < seconds * frequency; i++)
     {
-        ledSet(LED_GREEN_R, true);
+        ledSet(led, true);
         vTaskDelay(pdMS_TO_TICKS(1000 / frequency));
-        ledSet(LED_GREEN_R, false);
+        ledSet(led, false);
         vTaskDelay(pdMS_TO_TICKS(1000 / frequency));
     }
 }
@@ -64,7 +63,7 @@ static uint8_t _vl53l8cx_poll_for_answer(VL53L8CX_Configuration *p_dev, uint8_t 
         }
         else
         {
-            DEBUG_PRINT("out%u\n", timeout);
+            // DEBUG_PRINT("out%u\n", timeout);
             timeout++;
         }
     } while ((p_dev->temp_buffer[pos] & mask) != expected_value);
@@ -272,7 +271,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     status |= _vl53l8cx_poll_for_answer(p_dev, 1, 0, 0x06, 0xff, 1);
     if (status != (uint8_t)0)
     {
-        DEBUG_PRINT("SW reboot failed, status %u\n", status);
+        // DEBUG_PRINT("SW reboot failed, status %u\n", status);
         goto exit;
     }
 
@@ -315,16 +314,16 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x01);
 
     /* Download FW into VL53L8CX (page 0x09) */
-    DEBUG_PRINT("09\n");
+    // DEBUG_PRINT("09\n");
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x09);
     status |= VL53L8CX_WrMultiFW(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0], 0x8000, 0x09);
     /* page 0x0a */
-    DEBUG_PRINT("0a\n");
+    // DEBUG_PRINT("0a\n");
     status |= VL53L8CX_WaitMs_spi_pause(&(p_dev->platform), 10);
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x0a);
     status |= VL53L8CX_WrMultiFW(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0x8000], 0x8000, 0x0a);
     /* page 0x0b */
-    DEBUG_PRINT("0b\n");
+    // DEBUG_PRINT("0b\n");
     status |= VL53L8CX_WaitMs_spi_pause(&(p_dev->platform), 10);
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x0b);
     status |= VL53L8CX_WrMultiFW(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0x10000], 0x5000, 0x0b);
@@ -342,7 +341,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
 
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7FFF, 0x09);
 
-    led_debug(20);
+    led_debug(2, 2, LED_GREEN_R);
 
     // for (int page = 0; page < 3; page++)
     // {
@@ -367,12 +366,13 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     status |= _vl53l8cx_poll_for_mcu_boot(p_dev);
     if (status != (uint8_t)0)
     {
-        DEBUG_PRINT("MCU boot failed.\r\n");
+        // DEBUG_PRINT("MCU boot failed.\r\n");
+        led_debug(8, 10, LED_BLUE_L);
         goto exit;
     }
 
-    DEBUG_PRINT("booted\n");
-    led_debug(20);
+    // DEBUG_PRINT("booted\n");
+    led_debug(2, 2, LED_GREEN_L);
 
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x02);
     // /* Firmware checksum */
@@ -380,14 +380,14 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     // /****
     VL53L8CX_SwapBuffer(p_dev->temp_buffer, 4);
     memcpy((uint8_t *)&crc_checksum, &(p_dev->temp_buffer[0]), 4);
-    DEBUG_PRINT("checksum: %08lX\r\n", crc_checksum);
+    // DEBUG_PRINT("checksum: %08lX\r\n", crc_checksum);
     if (crc_checksum != (uint32_t)0xc0b6c9e)
     {
-        DEBUG_PRINT("FW error.\r\n");
+        // DEBUG_PRINT("FW error.\r\n");
         status |= VL53L8CX_STATUS_FW_CHECKSUM_FAIL;
         goto exit;
     }
-
+    led_debug(2, 2, LED_GREEN_R);
     /* Get offset NVM data and store them into the offset buffer */
     status |= VL53L8CX_WrMulti(&(p_dev->platform), 0x2fd8, (uint8_t *)VL53L8CX_GET_NVM_CMD, VL53L8CX_GET_NVM_CMD_SIZE);
     status |= _vl53l8cx_poll_for_answer(p_dev, 4, 0, VL53L8CX_UI_CMD_STATUS, 0xff, 2);
@@ -420,6 +420,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     status |= vl53l8cx_dci_write_data(p_dev, (uint8_t *)&single_range, VL53L8CX_DCI_SINGLE_RANGE,
                                       (uint16_t)sizeof(single_range));
 exit:
+    led_debug(2, 2, LED_GREEN_L);
     return status;
 }
 
@@ -601,9 +602,9 @@ uint8_t vl53l8cx_start_ranging(VL53L8CX_Configuration *p_dev)
     p_dev->data_read_size += (uint32_t)24;
 
     status |= vl53l8cx_dci_write_data(p_dev, (uint8_t *)&(output), VL53L8CX_DCI_OUTPUT_LIST, (uint16_t)sizeof(output));
-    DEBUG_PRINT("Out%lu \n", (unsigned long)sizeof(output));
-    DEBUG_PRINT("rea%lu \n", (unsigned long)p_dev->data_read_size);
-    DEBUG_PRINT("bhe%lu\n", (unsigned long)sizeof(output_bh_enable));
+    // DEBUG_PRINT("Out%lu \n", (unsigned long)sizeof(output));
+    // DEBUG_PRINT("rea%lu \n", (unsigned long)p_dev->data_read_size);
+    // DEBUG_PRINT("bhe%lu\n", (unsigned long)sizeof(output_bh_enable));
 
     header_config[0] = p_dev->data_read_size;
     header_config[1] = i + (uint32_t)1;
@@ -709,7 +710,7 @@ uint8_t vl53l8cx_check_data_ready(VL53L8CX_Configuration *p_dev, uint8_t *p_isRe
         (p_dev->temp_buffer[1] == (uint8_t)0x5) && ((p_dev->temp_buffer[2] & (uint8_t)0x5) == (uint8_t)0x5) &&
         ((p_dev->temp_buffer[3] & (uint8_t)0x10) == (uint8_t)0x10))
     {
-        DEBUG_PRINT("check data ready!\n");
+        // DEBUG_PRINT("check data ready!\n");
         *p_isReady = (uint8_t)1;
         p_dev->streamcount = p_dev->temp_buffer[0];
     }
@@ -724,9 +725,9 @@ uint8_t vl53l8cx_check_data_ready(VL53L8CX_Configuration *p_dev, uint8_t *p_isRe
         *p_isReady = 0;
     }
 
-    DEBUG_PRINT("%d,%d | %d,%d | %d,%d | %d,%d | %d,%d\n", p_dev->temp_buffer[0], p_dev->streamcount,
-                p_dev->temp_buffer[0], (uint8_t)255, p_dev->temp_buffer[1], (uint8_t)0x5, p_dev->temp_buffer[2],
-                (uint8_t)0x5, p_dev->temp_buffer[3], (uint8_t)0x10);
+    // DEBUG_PRINT("%d,%d | %d,%d | %d,%d | %d,%d | %d,%d\n", p_dev->temp_buffer[0], p_dev->streamcount,
+    //             p_dev->temp_buffer[0], (uint8_t)255, p_dev->temp_buffer[1], (uint8_t)0x5, p_dev->temp_buffer[2],
+    //             (uint8_t)0x5, p_dev->temp_buffer[3], (uint8_t)0x10);
     return status;
 }
 
@@ -1169,7 +1170,7 @@ uint8_t vl53l8cx_dci_read_data(VL53L8CX_Configuration *p_dev, uint8_t *data, uin
     /* Check if tmp buffer is large enough */
     if ((data_size + (uint16_t)12) > (uint16_t)VL53L8CX_TEMPORARY_BUFFER_SIZE)
     {
-        DEBUG_PRINT("Data size too large for temporary buffer\n");
+        // DEBUG_PRINT("Data size too large for temporary buffer\n");
         status |= VL53L8CX_STATUS_ERROR;
     }
     else

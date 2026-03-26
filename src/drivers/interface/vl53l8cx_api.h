@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "led.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -690,6 +691,7 @@ extern "C"
     uint8_t vl53l8cx_dci_replace_data(VL53L8CX_Configuration *p_dev, uint8_t *data, uint32_t index, uint16_t data_size,
                                       uint8_t *new_data, uint16_t new_data_size, uint16_t new_data_pos);
 
+    void led_debug(int seconds, int frequency, led_t led);
 #ifdef __cplusplus
 }
 #endif

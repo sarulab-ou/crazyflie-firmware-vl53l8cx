@@ -25,3 +25,6 @@ obj-y += vl53l0x.o
 obj-y += vl53l1x.o
 obj-y += watchdog.o
 obj-y += ws2812_cf2.o
+obj-y += vl53l8cx_buffers.o
+obj-y += vl53l8cx_api.o
+obj-y += platform_vl53l8cx.o

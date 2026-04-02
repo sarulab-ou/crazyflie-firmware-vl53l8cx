@@ -51,8 +51,9 @@
 
 VL53L8CX_Configuration Dev;
 
-#define TMP_TASK_STACKSIZE 512
-STATIC_MEM_TASK_ALLOC(tmpTask, TMP_TASK_STACKSIZE);
+// #define TMP_TASK_STACKSIZE 512
+// STATIC_MEM_TASK_ALLOC(tmpTask, TMP_TASK_STACKSIZE);
+
 
 void Ranging_Basic(uint16_t DevAddr)
 {
@@ -66,8 +67,13 @@ void Ranging_Basic(uint16_t DevAddr)
     if (!isAlive || status)
     {
         led_debug(3, 1,LED_BLUE_L);
+        while(!isAlive){
+          vl53l8cx_is_alive(&Dev, &isAlive);
+          led_debug(1, 1,LED_BLUE_L);
+        }
         return;
     }
+    led_debug(2, 5, LED_GREEN_R);
     // DEBUG_PRINT("alive\n");
     // (Mandatory) Init VL53L8CX sensor
     status = vl53l8cx_init(&Dev);
@@ -110,30 +116,39 @@ void Ranging_Basic(uint16_t DevAddr)
     }
 }
 
-void tmpTask(void *arg){
+// void spi_test(){
+//   return;
+// }
+
+void tmpTask(){
   init_IO();
   spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-  led_debug(3, 10,LED_BLUE_L);
+  // while(1){
+  //   VL53L8CX_WrByte(&(Dev.platform), 0x0005, 0x01);
+  //   VL53L8CX_WaitMs(&(Dev.platform), 10);
+  // }
   Ranging_Basic(0);
   while(1);
 }
 
 int main() 
 {
-  check_enter_bootloader();
+  // check_enter_bootloader();
+
+  // scheduler開始前なのでビジーウェイトで約10ms待機
 
   //Initialize the platform.
-  int err = platformInit();
-  if (err != 0) {
-    // The firmware is running on the wrong hardware. Halt
-    while(1);
-  }
+  // int err = platformInit();
+  // if (err != 0) {
+  //   // The firmware is running on the wrong hardware. Halt
+  //   while(1);
+  // }
   ledInit();
-
-  STATIC_MEM_TASK_CREATE(tmpTask, tmpTask, "tmp", NULL, 2);
+  tmpTask();
+  // STATIC_MEM_TASK_CREATE(tmpTask, tmpTask, "tmp", NULL, 2);
 
   //Start the FreeRTOS scheduler
-  vTaskStartScheduler();
+  // vTaskStartScheduler();
 
   // //Should never reach this point!
   // while(1);

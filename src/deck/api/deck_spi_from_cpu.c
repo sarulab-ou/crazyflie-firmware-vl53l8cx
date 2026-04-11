@@ -181,7 +181,7 @@ bool spiExchange(size_t length, const uint8_t * data_tx, uint8_t * data_rx)
   }
   // Disable peripheral
   SPI_Cmd(SPI, DISABLE);
-  return result;
+  return true;
 }
 
 void spiBeginTransaction(uint16_t baudRatePrescaler)

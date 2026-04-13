@@ -92,37 +92,12 @@ uint16_t Ser_IT()
     return Intr;
 }
 
-// 呼び出しもとでspiBeginTransaction/EndTransactionで囲むこと
-void Sel_Dev(unsigned short Dev)
-{
-    uint8_t rD;
-
-    if (Dev != BckDev)
-    {
-        // uint8_t read_addr_high = (uint8_t)((Dev >> 8) & 0xFF);
-        // uint8_t read_addr_low = (uint8_t)(Dev & 0xFF);
-        cs_low(CS0);
-        // uint8_t r = 0xFF;
-        // spiExchange(1, &r, &rD);
-        // spiExchange(1, &read_addr_high, &rD);
-        // spiExchange(1, &read_addr_low, &rD);
-
-        uint8_t dev_byte = (uint8_t)Dev;
-        spiExchange(1, &dev_byte, &rD);
-        dev_byte = 0x00;
-        spiExchange(1, &dev_byte, &rD);
-
-        cs_high(CS0);
-        BckDev = Dev;
-    }
-}
 
 uint8_t VL53L8CX_RdByte(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_value)
 {
     unsigned char rD[3];
     uint8_t status = 255;
     /* Need to be implemented by customer. This function returns 0 if OK */
-    Sel_Dev(p_platform->address);
     cs_low(CS1);
     // dititalwrite(DECK_GPIO_IO4, LOW);
     // Read: 先頭ビットを読み取りビットとして0に設定
@@ -145,8 +120,6 @@ uint8_t VL53L8CX_WrByte(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, 
 {
     unsigned char rD[3];
     uint8_t status = 255;
-
-    Sel_Dev(p_platform->address);
 
     uint8_t read_addr_high = (uint8_t)((RegisterAdress >> 8) | 0x80);
     uint8_t read_addr_low = (uint8_t)(RegisterAdress & 0xFF);
@@ -196,9 +169,7 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
     uint32_t offset = 0;  // 書き込み済みのバイト数
     unsigned char rD;     // ダミー変数、spiExchangeの引数として必要
     uint8_t status = 0;
-    const uint32_t CHUNK_SIZE = 64;  // 1回のSPIでまとめて書き込む最大バイト数
-
-    Sel_Dev(p_platform->address);
+    const uint32_t CHUNK_SIZE = 0x8000;  // 1回のSPIでまとめて書き込む最大バイト数
 
     // 64バイトごとのchunkで処理
     while (offset < size)
@@ -209,8 +180,6 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
         uint8_t read_addr_high = (uint8_t)((chunk_addr >> 8) | 0x80);
         uint8_t read_addr_low = (uint8_t)(chunk_addr & 0xFF);
 
-        // chunk毎に宛先デバイスを再選択
-        Sel_Dev(p_platform->address);
 
         // 完全なフレームとして 1chunk 送信
         cs_low(CS1);
@@ -237,7 +206,6 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
         uint8_t read_addr_high = (uint8_t)((chunk_addr >> 8) & 0x7F);
         uint8_t read_addr_low = (uint8_t)(chunk_addr & 0xFF);
 
-        Sel_Dev(p_platform->address);
         cs_low(CS1);
         spiExchange(1, &read_addr_high, &rD);
         spiExchange(1, &read_addr_low, &rD);
@@ -264,15 +232,13 @@ uint8_t VL53L8CX_WrMultiFW(VL53L8CX_Platform *p_platform, uint16_t RegisterAdres
     uint32_t offset = 0;
     unsigned char rD;
     uint8_t status = 0;
-    const uint32_t CHUNK_SIZE = 64;
+    const uint32_t CHUNK_SIZE = 0x8000;
     while (offset < size)  // 64バイトごとに処理
     {
         uint32_t chunk_len = (size - offset) > CHUNK_SIZE ? CHUNK_SIZE : (size - offset);
         uint16_t chunk_addr = RegisterAdress + offset;
         uint8_t read_addr_high = (uint8_t)((chunk_addr >> 8) | 0x80);
         uint8_t read_addr_low = (uint8_t)(chunk_addr & 0xFF);
-
-        Sel_Dev(p_platform->address);  // チャンク毎に宛先デバイスを再選択
 
         // 完全なフレームとして1チャンク送信
         cs_low(CS1);
@@ -301,7 +267,6 @@ uint8_t VL53L8CX_WrMultiFW(VL53L8CX_Platform *p_platform, uint16_t RegisterAdres
         uint8_t read_addr_high = (uint8_t)((chunk_addr >> 8) & 0x7F);
         uint8_t read_addr_low = (uint8_t)(chunk_addr & 0xFF);
 
-        Sel_Dev(p_platform->address);
         cs_low(CS1);
         spiExchange(1, &read_addr_high, &rD);
         spiExchange(1, &read_addr_low, &rD);
@@ -329,7 +294,6 @@ uint8_t VL53L8CX_RdMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
     uint32_t n;
     unsigned char rD;
     uint8_t status = 255;
-    Sel_Dev(p_platform->address);
     uint8_t read_addr_high = (uint8_t)((RegisterAdress >> 8) & 0x7F);
     uint8_t read_addr_low = (uint8_t)(RegisterAdress & 0xFF);
 
@@ -342,41 +306,6 @@ uint8_t VL53L8CX_RdMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
     }
     cs_high(CS1);
     status = 0;
-    return status;
-}
-
-uint8_t VL53L8CX_RdMulti_chunk(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size)
-{
-    uint8_t status = 0;
-    uint8_t tmp;
-    Sel_Dev(p_platform->address);
-    uint16_t chunk_size = 0x020;
-    uint16_t chunk_num = size / chunk_size + ((size % chunk_size) ? 1 : 0);
-    uint16_t Rd_size = 0;
-    status |= VL53L8CX_RdByte(p_platform, 0x7fff, &tmp);
-    uint16_t offset = 0x0000;
-    status |= VL53L8CX_WaitMs_spi_pause(p_platform, 5);
-    for (uint16_t i = 0x0000; i < chunk_num; i++)
-    {
-        Sel_Dev(p_platform->address);
-        Rd_size = ((size - offset) >= chunk_size) ? chunk_size : (size - offset);
-        status |= VL53L8CX_RdMulti(p_platform, offset, p_values, Rd_size);
-
-        // RdMultiの中でデータを表示する場合はコメントアウトを外す
-        // DEBUG_PRINT("Offset %04X:\n", offset);
-        // for (int j = 0; j < chunk_size; j++)
-        // {
-        //     DEBUG_PRINT("%02X, ", p_values[j]);
-        //     // if (j % 8 == 7)
-        //     if (j % 4 == 3)
-        //     {
-        //         DEBUG_PRINT("\n");
-        //     }
-        // }
-        // DEBUG_PRINT("\n");
-        offset += Rd_size;
-        status |= VL53L8CX_WaitMs_spi_pause(p_platform, 5);
-    }
     return status;
 }
 
@@ -430,7 +359,6 @@ uint8_t VL53L8CX_WaitMs_spi_pause(VL53L8CX_Platform *p_platform, uint32_t TimeMs
 {
     uint8_t status = 255;
     vTaskDelay_for_spi_pause(TimeMs);
-    Sel_Dev(p_platform->address);
     status = 0;
 
     return status;

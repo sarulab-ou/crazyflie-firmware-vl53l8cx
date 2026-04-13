@@ -347,7 +347,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     // {
     //     status |= VL53L8CX_WaitMs_spi_pause(&(p_dev->platform), 5);
     //     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7FFF, 0x09 + page);
-    //     status |= VL53L8CX_RdMulti_chunk(&(p_dev->platform), 0x00, p_dev->temp_buffer, (page == 2) ? 0x5000 :
+    //     status |= VL53L8CX_RdMulti(&(p_dev->platform), 0x00, p_dev->temp_buffer, (page == 2) ? 0x5000 :
     //     0x8000);
     //     // DEBUG_PRINT("\n\n!!!!!\n\n");
     // }
@@ -392,7 +392,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     status |= VL53L8CX_WrMulti(&(p_dev->platform), 0x2fd8, (uint8_t *)VL53L8CX_GET_NVM_CMD, VL53L8CX_GET_NVM_CMD_SIZE);
     status |= _vl53l8cx_poll_for_answer(p_dev, 4, 0, VL53L8CX_UI_CMD_STATUS, 0xff, 2);
     status |=
-        VL53L8CX_RdMulti_chunk(&(p_dev->platform), VL53L8CX_UI_CMD_START, p_dev->temp_buffer, VL53L8CX_NVM_DATA_SIZE);
+        VL53L8CX_RdMulti(&(p_dev->platform), VL53L8CX_UI_CMD_START, p_dev->temp_buffer, VL53L8CX_NVM_DATA_SIZE);
     (void)memcpy(p_dev->offset_data, p_dev->temp_buffer, VL53L8CX_OFFSET_BUFFER_SIZE);
     status |= _vl53l8cx_send_offset_data(p_dev, VL53L8CX_RESOLUTION_4X4);
 

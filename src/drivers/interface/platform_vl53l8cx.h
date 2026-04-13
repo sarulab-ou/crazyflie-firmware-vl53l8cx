@@ -100,8 +100,6 @@ uint8_t VL53L8CX_WrByte(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, 
 
 uint8_t VL53L8CX_RdMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size);
 
-uint8_t VL53L8CX_RdMulti_chunk(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values,
-                               uint32_t size);
 
 /**
  * @brief Mandatory function used to write multiples bytes.
@@ -152,7 +150,6 @@ uint8_t VL53L8CX_WaitMs(VL53L8CX_Platform *p_platform, uint32_t TimeMs);
 uint8_t VL53L8CX_WaitMs_spi_pause(VL53L8CX_Platform *p_platform, uint32_t TimeMs);
 
 void init_IO(void);
-void Sel_Dev(unsigned short Dev);
 uint16_t Ser_IT(void);
 
 void cpu_release_for_spi_pause();

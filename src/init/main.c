@@ -123,17 +123,6 @@ void Ranging_Basic(uint16_t DevAddr)
 void tmpTask(){
   init_IO();
   spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-
-//   VL53L8CX_WrByte(&(Dev.platform), 0x0005, 0x01);
-//   VL53L8CX_WaitMs(&(Dev.platform), 1000);
-//   VL53L8CX_RdByte(&(Dev.platform), 0x0005, &Dev.temp_buffer[0]);
-//   if(Dev.temp_buffer[0] == 0x01){
-//     led_debug(2, 2, LED_BLUE_L);
-//   }else{
-//     led_debug(2, 2, LED_GREEN_R);
-//   }
-//   while(1){}
-  
   Ranging_Basic(0);
   while(1);
 }
@@ -151,6 +140,7 @@ int main()
   //   while(1);
   // }
   ledInit();
+  // spi_test();
   tmpTask();
   // STATIC_MEM_TASK_CREATE(tmpTask, tmpTask, "tmp", NULL, 2);
 

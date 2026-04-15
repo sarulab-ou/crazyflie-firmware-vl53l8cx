@@ -1,0 +1,76 @@
+# セットアップ（最低限）
+
+## 前提
+
+- 開発環境: Ubuntu
+- 確認済み環境: Ubuntu 22.04.5 LTS
+
+## 1. crazyradio の設定
+
+`plugdev` グループを作成し、ユーザを追加します。
+
+```bash
+sudo groupadd plugdev
+sudo usermod -a -G plugdev $USER
+```
+
+udev ルールを設定します。
+
+```bash
+cat <<EOF | sudo tee /etc/udev/rules.d/99-bitcraze.rules > /dev/null
+# Crazyradio (normal operation)
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1915", ATTRS{idProduct}=="7777", MODE="0664", GROUP="plugdev"
+# Bootloader
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1915", ATTRS{idProduct}=="0101", MODE="0664", GROUP="plugdev"
+# Crazyflie (over USB)
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", MODE="0664", GROUP="plugdev"
+EOF
+```
+
+設定を再読み込みして反映します。
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+## 2. ビルドツールをインストール
+
+```bash
+sudo apt-get install make gcc-arm-none-eabi
+```
+
+## 3. リポジトリを clone
+
+サブモジュールを含めて取得します。
+
+```bash
+git clone --recursive https://github.com/sarulab-ou/crazyflie-firmware-vl53l8cx
+cd crazyflie-firmware-vl53l8cx
+```
+
+## 4. config を作成
+
+Crazyflie 2.0 / 2.1(+) の場合は、以下を実行します。
+
+```bash
+make cf2_defconfig
+```
+
+## 5. ビルド
+
+```bash
+make -j$(nproc)
+```
+
+## 6. ファームウェアを書き込み
+
+```bash
+CLOAD_CMDS="-w radio://0/80/2M/E7E7E7E7E7" make cload
+```
+
+## ドキュメントの所在
+
+- vl53l8cxについて: [docs/vl53l8cx.pdf](docs/vl53l8cx.pdf)
+- crazyflieのマイコンのデータシート（英語ver）: [docs/dm00031020-stm32f405-415-stm32f407-417-stm32f427-437-and-stm32f429-439-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf](docs/dm00031020-stm32f405-415-stm32f407-417-stm32f427-437-and-stm32f429-439-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf)
+- crazyflieのマイコンのデータシート（日本語ver）: https://www.st.com/resource/ja/reference_manual/rm0090-stm32f405415-stm32f407417-stm32f427437-and-stm32f429439-advanced-armbased-32bit-mcus-stmicroelectronics.pdf

@@ -50,6 +50,7 @@
 #include "static_mem.h"
 
 VL53L8CX_Configuration Dev;
+VL53L8CX_ResultsData Results;
 
 // #define TMP_TASK_STACKSIZE 512
 // STATIC_MEM_TASK_ALLOC(tmpTask, TMP_TASK_STACKSIZE);
@@ -66,20 +67,20 @@ void Ranging_Basic(uint16_t DevAddr)
     status = vl53l8cx_is_alive(&Dev, &isAlive);
     if (!isAlive || status)
     {
-        led_debug(3, 1,LED_BLUE_L);
+        led_debug(3000, 1,LED_BLUE_L);
         while(!isAlive){
           vl53l8cx_is_alive(&Dev, &isAlive);
-          led_debug(1, 1,LED_BLUE_L);
+          led_debug(1000, 1,LED_BLUE_L);
         }
         return;
     }
-    led_debug(2, 5, LED_GREEN_R);
+    // led_debug(2000, 5, LED_GREEN_R);
     // DEBUG_PRINT("alive\n");
     // (Mandatory) Init VL53L8CX sensor
     status = vl53l8cx_init(&Dev);
     if (status)
     {
-        led_debug(3, 3, LED_BLUE_L);
+        led_debug(3000, 3, LED_BLUE_L);
         return;
     }
 
@@ -88,19 +89,23 @@ void Ranging_Basic(uint16_t DevAddr)
     if (status)
     {
         // DEBUG_PRINT("set_ranging_frequency_hz failed, status %u\n", status);
-        led_debug(3, 6, LED_BLUE_L);
+        led_debug(3000, 6, LED_BLUE_L);
         return;
     }
     status = vl53l8cx_start_ranging(&Dev);
     loop = 0;
-    led_debug(2, 2, LED_GREEN_R);
+    led_debug(2000, 2, LED_GREEN_R);
     while (loop < 30000)
     {
         status = vl53l8cx_check_data_ready(&Dev, &isReady);
         if (isReady)
         {
-            led_debug(5, 10, LED_GREEN_L);
-            // vl53l8cx_get_ranging_data(&Dev, &Results);
+            vl53l8cx_get_ranging_data(&Dev, &Results);
+            if(50 < Results.distance_mm[0] && Results.distance_mm[0] < 100){
+              led_debug(200, 20, LED_BLUE_L);
+            }else{
+              led_debug(200, 20, LED_GREEN_L);
+            }
             // DEBUG_PRINT("Print data no : %3u\n", Dev.streamcount);
             // for (i = 0; i < 16; i++)
             // {
@@ -123,7 +128,7 @@ void Ranging_Basic(uint16_t DevAddr)
 void tmpTask(){
   init_IO();
   spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-  Ranging_Basic(0);
+  Ranging_Basic(7);
   while(1);
 }
 

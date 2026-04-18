@@ -23,9 +23,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-void led_debug(int seconds, int frequency, led_t led)
+void led_debug(int mm, int frequency, led_t led)
 {
-    for (int i = 0; i < seconds * frequency; i++)
+    for (int i = 0; i < (int) (mm * frequency / 1000); i++)
     {
         ledSet(led, true);
         vTaskDelay(pdMS_TO_TICKS(1000 / frequency));
@@ -341,7 +341,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
 
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7FFF, 0x09);
 
-    led_debug(2, 2, LED_GREEN_R);
+    // led_debug(2000, 2, LED_GREEN_R);
 
     // for (int page = 0; page < 3; page++)
     // {
@@ -367,12 +367,12 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     if (status != (uint8_t)0)
     {
         // DEBUG_PRINT("MCU boot failed.\r\n");
-        led_debug(8, 10, LED_BLUE_L);
+        led_debug(8000, 10, LED_BLUE_L);
         goto exit;
     }
 
     // DEBUG_PRINT("booted\n");
-    led_debug(2, 2, LED_GREEN_L);
+    // led_debug(2000, 2, LED_GREEN_L);
 
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x02);
     // /* Firmware checksum */
@@ -387,12 +387,12 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
         status |= VL53L8CX_STATUS_FW_CHECKSUM_FAIL;
         goto exit;
     }
-    led_debug(2, 2, LED_GREEN_R);
+    // led_debug(2000, 2, LED_GREEN_R);
     /* Get offset NVM data and store them into the offset buffer */
     status |= VL53L8CX_WrMulti(&(p_dev->platform), 0x2fd8, (uint8_t *)VL53L8CX_GET_NVM_CMD, VL53L8CX_GET_NVM_CMD_SIZE);
     status |= _vl53l8cx_poll_for_answer(p_dev, 4, 0, VL53L8CX_UI_CMD_STATUS, 0xff, 2);
     status |=
-        VL53L8CX_RdMulti_chunk(&(p_dev->platform), VL53L8CX_UI_CMD_START, p_dev->temp_buffer, VL53L8CX_NVM_DATA_SIZE);
+        VL53L8CX_RdMulti(&(p_dev->platform), VL53L8CX_UI_CMD_START, p_dev->temp_buffer, VL53L8CX_NVM_DATA_SIZE);
     (void)memcpy(p_dev->offset_data, p_dev->temp_buffer, VL53L8CX_OFFSET_BUFFER_SIZE);
     status |= _vl53l8cx_send_offset_data(p_dev, VL53L8CX_RESOLUTION_4X4);
 
@@ -420,7 +420,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     status |= vl53l8cx_dci_write_data(p_dev, (uint8_t *)&single_range, VL53L8CX_DCI_SINGLE_RANGE,
                                       (uint16_t)sizeof(single_range));
 exit:
-    led_debug(2, 2, LED_GREEN_L);
+    // led_debug(2000, 2, LED_GREEN_L);
     return status;
 }
 

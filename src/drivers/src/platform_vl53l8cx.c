@@ -99,13 +99,7 @@ void Sel_Dev(unsigned short Dev)
 
     if (Dev != BckDev)
     {
-        // uint8_t read_addr_high = (uint8_t)((Dev >> 8) & 0xFF);
-        // uint8_t read_addr_low = (uint8_t)(Dev & 0xFF);
         cs_low(CS0);
-        // uint8_t r = 0xFF;
-        // spiExchange(1, &r, &rD);
-        // spiExchange(1, &read_addr_high, &rD);
-        // spiExchange(1, &read_addr_low, &rD);
 
         uint8_t dev_byte = (uint8_t)Dev;
         uint8_t dummy = 0x00;
@@ -161,104 +155,6 @@ uint8_t VL53L8CX_WrByte(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, 
     return status;
 }
 
-// uint8_t VL53L8CX_WrByte(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t value)
-// {
-//     uint8_t tx_buf[3];
-//     uint8_t rx_buf[3];
-//     uint8_t status = 255;
-
-//     Sel_Dev(p_platform->address);
-
-//     tx_buf[0] = (uint8_t)((RegisterAdress >> 8) | 0x80);
-//     tx_buf[1] = (uint8_t)(RegisterAdress & 0xFF);
-//     tx_buf[2] = value;
-
-//     cs_low(CS1);
-//     spiExchange(3, tx_buf, rx_buf);
-//     cs_high(CS1);
-
-//     status = 0;
-//     return status;
-// }
-
-// uint8_t VL53L8CX_WrByteMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, const uint8_t *p_values, uint32_t size)
-// {
-//     uint8_t *tx_buf;
-//     uint8_t *rx_buf;
-//     uint32_t total_len;
-//     uint8_t status = 255;
-
-//     if ((size > 0U) && (p_values == NULL))
-//     {
-//         return status;
-//     }
-
-//     total_len = size + 2U;
-//     tx_buf = (uint8_t *)malloc(total_len);
-//     rx_buf = (uint8_t *)malloc(total_len);
-
-//     if ((tx_buf == NULL) || (rx_buf == NULL))
-//     {
-//         if (tx_buf != NULL)
-//         {
-//             free(tx_buf);
-//         }
-//         if (rx_buf != NULL)
-//         {
-//             free(rx_buf);
-//         }
-//         return status;
-//     }
-
-//     Sel_Dev(p_platform->address);
-
-//     tx_buf[0] = (uint8_t)((RegisterAdress >> 8) | 0x80);
-//     tx_buf[1] = (uint8_t)(RegisterAdress & 0xFF);
-//     if (size > 0U)
-//     {
-//         memcpy(&tx_buf[2], p_values, size);
-//     }
-
-//     cs_low(CS1);
-//     spiExchange(total_len, tx_buf, rx_buf);
-//     cs_high(CS1);
-
-//     free(tx_buf);
-//     free(rx_buf);
-
-//     status = 0;
-//     return status;
-// }
-
-// 呼び出しもとでspiBeginTransaction/EndTransactionで囲むこと
-// uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size)
-// {
-//     unsigned char rD;
-//     uint8_t status = 0;
-
-//     Sel_Dev(p_platform->address);
-
-//     // DEBUG_PRINT("VL53L8CX_WrMulti: offset=%lu/%lu\n", offset, size);
-
-//     uint8_t read_addr_high = (uint8_t)((RegisterAdress >> 8) | 0x80);
-//     uint8_t read_addr_low = (uint8_t)(RegisterAdress & 0xFF);
-
-//     // チャンク毎に宛先デバイスを再選択（トランザクション再取得後の安全性向上）
-//     Sel_Dev(p_platform->address);
-
-//     // 完全なフレームとして1チャンク送信
-//     cs_low(CS1);
-//     spiExchange(1, &read_addr_high, &rD);
-//     spiExchange(1, &read_addr_low, &rD);
-//     for (uint32_t n = 0; n < size; n++)
-//     {
-//         spiExchange(1, &p_values[n], &rD);
-//     }
-//     cs_high(CS1);
-
-//     return status;
-// }
-
 // 呼び出しもとでspiBeginTransaction/EndTransactionで囲むこと
 uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size)
 {
@@ -267,7 +163,7 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
     uint8_t status = 0;
     const uint32_t CHUNK_SIZE = 0x8000;  // 1回のSPIでまとめて書き込む最大バイト数
 
-    Sel_Dev(p_platform->address);
+    // Sel_Dev(p_platform->address);
 
     // 64バイトごとのchunkで処理
     while (offset < size)

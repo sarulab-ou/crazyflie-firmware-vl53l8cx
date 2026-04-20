@@ -26,24 +26,6 @@
 #include "stm32f4xx_spi.h"
 #include "task.h"
 
-// Provide two alternatives: the original mbed implementation when USE_MBED
-// is defined, otherwise fallback to lightweight GCC-friendly stubs that
-// allow compilation on a normal host toolchain. The stubs are simple and
-// intended as placeholders; replace thinit_IOem with real hardware bindings as
-// needed (e.g., spidev, sysfs GPIO, wiringPi, libgpiod, etc.).
-
-#ifndef USE_MBED
-
-// Define simple integer constants for pin names used in the original code.
-#define PA_7 0
-#define PA_6 1
-#define PB_3 2
-#define PB_12 3
-#define PB_6 4
-#define PC_7 5
-
-#endif  // USE_MBED
-
 static deckPin_t CS0;
 static deckPin_t CS1;
 static deckPin_t CS2;
@@ -163,8 +145,6 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
     uint8_t status = 0;
     const uint32_t CHUNK_SIZE = 0x8000;  // 1回のSPIでまとめて書き込む最大バイト数
 
-    // Sel_Dev(p_platform->address);
-
     // 64バイトごとのchunkで処理
     while (offset < size)
     {
@@ -190,33 +170,6 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
         offset += chunk_len;
 
         // chunkごとにtaskにdelayを入れる
-        vTaskDelay_for_spi_pause(3);
-    }
-
-    // WrMultiの後に書き込み内容を読み取って確認するコード（デバッグ用）
-    offset = 0;  // 書き込み済みのバイト数
-    while (offset < size)
-    {
-        uint32_t chunk_len = (size - offset) > CHUNK_SIZE ? CHUNK_SIZE : (size - offset);
-        uint16_t chunk_addr = RegisterAdress + offset;
-        uint8_t read_addr_high = (uint8_t)((chunk_addr >> 8) & 0x7F);
-        uint8_t read_addr_low = (uint8_t)(chunk_addr & 0xFF);
-
-        Sel_Dev(p_platform->address);
-        cs_low(CS1);
-        spiExchange(1, &read_addr_high, &rD);
-        spiExchange(1, &read_addr_low, &rD);
-        for (uint32_t n = 0; n < chunk_len; n++)
-        {
-            spiExchange(1, 0x00, &rD);  // ダミー送信
-            if (rD != p_values[offset + n])
-            {
-                // DEBUG_PRINT("WrMulti failed :offset %lu (expected %02X, got %02X)\n", offset + n, p_values[offset + n],
-                //             rD);
-            }
-        }
-        cs_high(CS1);
-        offset += chunk_len;
         vTaskDelay_for_spi_pause(3);
     }
 
@@ -255,34 +208,6 @@ uint8_t VL53L8CX_WrMultiFW(VL53L8CX_Platform *p_platform, uint16_t RegisterAdres
         vTaskDelay_for_spi_pause(5);
         // VL53L8CX_WrByte(p_platform, 0x7fff, page);
     }
-
-    // WrMultiの後に書き込み内容を読み取って確認するコード（デバッグ用）
-    offset = 0;  // 書き込み済みのバイト数
-    vTaskDelay_for_spi_pause(5);
-    while (offset < size)
-    {
-        uint32_t chunk_len = (size - offset) > CHUNK_SIZE ? CHUNK_SIZE : (size - offset);
-        uint16_t chunk_addr = RegisterAdress + offset;
-        uint8_t read_addr_high = (uint8_t)((chunk_addr >> 8) & 0x7F);
-        uint8_t read_addr_low = (uint8_t)(chunk_addr & 0xFF);
-
-        Sel_Dev(p_platform->address);
-        cs_low(CS1);
-        spiExchange(1, &read_addr_high, &rD);
-        spiExchange(1, &read_addr_low, &rD);
-        for (uint32_t n = 0; n < chunk_len; n++)
-        {
-            spiExchange(1, 0x00, &rD);  // ダミー送信
-            if (rD != p_values[offset + n])
-            {
-                // DEBUG_PRINT("FW fail at %lu ( exp %02X, got %02X)\n", offset + n, p_values[offset + n], rD);
-            }
-        }
-        cs_high(CS1);
-        offset += chunk_len;
-        vTaskDelay_for_spi_pause(3);
-    }
-
     return status;
 }
 
@@ -307,41 +232,6 @@ uint8_t VL53L8CX_RdMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
     }
     cs_high(CS1);
     status = 0;
-    return status;
-}
-
-uint8_t VL53L8CX_RdMulti_chunk(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size)
-{
-    uint8_t status = 0;
-    uint8_t tmp;
-    Sel_Dev(p_platform->address);
-    uint16_t chunk_size = 0x8000;
-    uint16_t chunk_num = size / chunk_size + ((size % chunk_size) ? 1 : 0);
-    uint16_t Rd_size = 0;
-    status |= VL53L8CX_RdByte(p_platform, 0x7fff, &tmp);
-    uint16_t offset = 0x0000;
-    status |= VL53L8CX_WaitMs_spi_pause(p_platform, 5);
-    for (uint16_t i = 0x0000; i < chunk_num; i++)
-    {
-        Sel_Dev(p_platform->address);
-        Rd_size = ((size - offset) >= chunk_size) ? chunk_size : (size - offset);
-        status |= VL53L8CX_RdMulti(p_platform, offset, p_values, Rd_size);
-
-        // RdMultiの中でデータを表示する場合はコメントアウトを外す
-        // DEBUG_PRINT("Offset %04X:\n", offset);
-        // for (int j = 0; j < chunk_size; j++)
-        // {
-        //     DEBUG_PRINT("%02X, ", p_values[j]);
-        //     // if (j % 8 == 7)
-        //     if (j % 4 == 3)
-        //     {
-        //         DEBUG_PRINT("\n");
-        //     }
-        // }
-        // DEBUG_PRINT("\n");
-        offset += Rd_size;
-        status |= VL53L8CX_WaitMs_spi_pause(p_platform, 5);
-    }
     return status;
 }
 
@@ -436,55 +326,3 @@ void vTaskDelay_for_spi_pause(uint32_t TimeMs)
     // cpu_reacquire_after_spi_pause(CS_PIN_STATE);
     spiBeginTransaction(SPI_BAUDRATE_2MHZ);
 }
-
-// /* ===== newlib I/O stubs for vTaskList() support ===== */
-// int _write(int file, const char *ptr, int len)
-// {
-//     (void)file;
-//     for (int i = 0; i < len; i++)
-//     {
-//         DEBUG_PRINT("%c", ptr[i]);
-//     }
-//     return len;
-// }
-
-// int _read(int file, char *ptr, int len)
-// {
-//     (void)file;
-//     (void)ptr;
-//     (void)len;
-//     return 0;
-// }
-
-// int _close(int file)
-// {
-//     (void)file;
-//     return 0;
-// }
-
-// int _lseek(int file, int ptr, int dir)
-// {
-//     (void)file;
-//     (void)ptr;
-//     (void)dir;
-//     return 0;
-// }
-
-// int _fstat(int file, void *st)
-// {
-//     (void)file;
-//     (void)st;
-//     return 0;
-// }
-
-// int _isatty(int file)
-// {
-//     (void)file;
-//     return 1;
-// }
-
-// void *_sbrk(int incr)
-// {
-//     (void)incr;
-//     return (void *)-1;
-// }

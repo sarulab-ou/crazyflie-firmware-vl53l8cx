@@ -341,8 +341,6 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
 
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7FFF, 0x09);
 
-    // led_debug(2000, 2, LED_GREEN_R);
-
     // for (int page = 0; page < 3; page++)
     // {
     //     status |= VL53L8CX_WaitMs_spi_pause(&(p_dev->platform), 5);
@@ -371,9 +369,6 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
         goto exit;
     }
 
-    // DEBUG_PRINT("booted\n");
-    // led_debug(2000, 2, LED_GREEN_L);
-
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x02);
     // /* Firmware checksum */
     status |= VL53L8CX_RdMulti(&(p_dev->platform), (uint16_t)(0x812FFC & 0xFFFF), p_dev->temp_buffer, 4);
@@ -387,7 +382,6 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
         status |= VL53L8CX_STATUS_FW_CHECKSUM_FAIL;
         goto exit;
     }
-    // led_debug(2000, 2, LED_GREEN_R);
     /* Get offset NVM data and store them into the offset buffer */
     status |= VL53L8CX_WrMulti(&(p_dev->platform), 0x2fd8, (uint8_t *)VL53L8CX_GET_NVM_CMD, VL53L8CX_GET_NVM_CMD_SIZE);
     status |= _vl53l8cx_poll_for_answer(p_dev, 4, 0, VL53L8CX_UI_CMD_STATUS, 0xff, 2);

@@ -78,6 +78,7 @@
 #define SPI_MOSI_SOURCE         GPIO_PinSource7
 #define SPI_MOSI_AF             GPIO_AF_SPI1
 
+#define DECK_SPI_MODE3
 
 #define DUMMY_BYTE         0xA5
 

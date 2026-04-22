@@ -532,3 +532,9 @@ config DECK_COLORLED
     default y
     help
         Enables the support for Color LED deck.
+
+config DECK_VL53L8CX11
+    bool "Support for VL53L8CX11 deck"
+    default y
+    help
+        Enables the custom VL53L8CX deck driver and its parameter/log groups.

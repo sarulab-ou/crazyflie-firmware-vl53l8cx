@@ -37,7 +37,6 @@
 #include "system.h"
 #include "usec_time.h"
 
-#include "led.h"
 
 /* ST includes */
 #include "stm32fxxx.h"
@@ -49,111 +48,24 @@
 #include "stm32f4xx_spi.h"
 #include "static_mem.h"
 
-VL53L8CX_Configuration Dev;
-VL53L8CX_ResultsData Results;
-
-// #define TMP_TASK_STACKSIZE 512
-// STATIC_MEM_TASK_ALLOC(tmpTask, TMP_TASK_STACKSIZE);
-
-
-void Ranging_Basic(uint16_t DevAddr)
-{
-    uint8_t status, loop, isAlive;
-    uint8_t isReady;
-
-    Dev.platform.address = DevAddr;
-
-    // (Optional) Check if there is a VL53L8CX sensor connected
-    status = vl53l8cx_is_alive(&Dev, &isAlive);
-    if (!isAlive || status)
-    {
-        led_debug(3000, 1,LED_BLUE_L);
-        while(!isAlive){
-          vl53l8cx_is_alive(&Dev, &isAlive);
-          led_debug(1000, 1,LED_BLUE_L);
-        }
-        return;
-    }
-    // led_debug(2000, 5, LED_GREEN_R);
-    // DEBUG_PRINT("alive\n");
-    // (Mandatory) Init VL53L8CX sensor
-    status = vl53l8cx_init(&Dev);
-    if (status)
-    {
-        led_debug(3000, 3, LED_BLUE_L);
-        return;
-    }
-
-    // Ranging loop
-    status = vl53l8cx_set_ranging_frequency_hz(&Dev, 30);
-    if (status)
-    {
-        // DEBUG_PRINT("set_ranging_frequency_hz failed, status %u\n", status);
-        led_debug(3000, 6, LED_BLUE_L);
-        return;
-    }
-    status = vl53l8cx_start_ranging(&Dev);
-    loop = 0;
-    led_debug(2000, 2, LED_GREEN_R);
-    while (loop < 30000)
-    {
-        status = vl53l8cx_check_data_ready(&Dev, &isReady);
-        if (isReady)
-        {
-            vl53l8cx_get_ranging_data(&Dev, &Results);
-            if(50 < Results.distance_mm[0] && Results.distance_mm[0] < 100){
-              led_debug(200, 20, LED_BLUE_L);
-            }else{
-              led_debug(200, 20, LED_GREEN_L);
-            }
-            // DEBUG_PRINT("Print data no : %3u\n", Dev.streamcount);
-            // for (i = 0; i < 16; i++)
-            // {
-            //     DEBUG_PRINT("Zone : %3d, Status : %3u, Distance : %4d mm\n", i,
-            //                 Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i],
-            //                 Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-            // }
-            // DEBUG_PRINT("\n");
-            loop++;
-        }
-        // DEBUG_PRINT("l\n");
-        VL53L8CX_WaitMs(&(Dev.platform), 50);
-    }
-}
-
-// void spi_test(){
-//   return;
-// }
-
-void tmpTask(){
-  init_IO();
-  spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-  Ranging_Basic(7);
-  while(1);
-}
-
 int main() 
 {
-  // check_enter_bootloader();
-
-  // scheduler開始前なのでビジーウェイトで約10ms待機
+  check_enter_bootloader();
 
   //Initialize the platform.
-  // int err = platformInit();
-  // if (err != 0) {
-  //   // The firmware is running on the wrong hardware. Halt
-  //   while(1);
-  // }
-  ledInit();
-  // spi_test();
-  tmpTask();
-  // STATIC_MEM_TASK_CREATE(tmpTask, tmpTask, "tmp", NULL, 2);
+  int err = platformInit();
+  if (err != 0) {
+    // The firmware is running on the wrong hardware. Halt
+    while(1);
+  }
+  
+  systemLaunch();
 
   //Start the FreeRTOS scheduler
-  // vTaskStartScheduler();
+  vTaskStartScheduler();
 
-  // //Should never reach this point!
-  // while(1);
+  //Should never reach this point!
+  while(1);
 
   return 0;
 }

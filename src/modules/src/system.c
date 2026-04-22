@@ -77,6 +77,10 @@
   #include "cpxlink.h"
 #endif
 
+#include "vl53l8cx_api.h"
+#include "../deck/interface/deck_spi.h"
+#include "stm32f4xx_spi.h"
+
 /* Private variable */
 static bool selftestPassed;
 static uint8_t dumpAssertInfo = 0;
@@ -91,6 +95,8 @@ STATIC_MEM_TASK_ALLOC(systemTask, SYSTEM_TASK_STACKSIZE);
 /* System wide synchronisation */
 xSemaphoreHandle canStartMutex;
 static StaticSemaphore_t canStartMutexBuffer;
+static xSemaphoreHandle vl53l8cxInitDoneSem;
+static StaticSemaphore_t vl53l8cxInitDoneSemBuffer;
 
 /* Private functions */
 static void systemTask(void *arg);
@@ -161,6 +167,73 @@ bool systemTest()
   return pass;
 }
 
+int Ranging_Basic_init(uint16_t DevAddr, VL53L8CX_Configuration* Dev)
+{
+    uint8_t status, isAlive;
+    Dev->platform.address = DevAddr;
+
+    // (Optional) Check if there is a VL53L8CX sensor connected
+    status = vl53l8cx_is_alive(Dev, &isAlive);
+    if (!isAlive || status)
+    {
+        led_debug(3000, 1,LED_BLUE_L);
+        // Retry up to 10 times with 50ms delay between retries
+        int retry_count = 0;
+        while(!isAlive && retry_count < 10){
+          vTaskDelay(M2T(50));
+          vl53l8cx_is_alive(Dev, &isAlive);
+          led_debug(100, 1,LED_BLUE_L);
+          retry_count++;
+        }
+        if (!isAlive) {
+          return 0;
+        }
+    }
+
+    status = vl53l8cx_init(Dev);
+    if (status)
+    {
+        led_debug(1000, 3, LED_BLUE_L);
+        return 0;
+    }
+
+    status = vl53l8cx_set_ranging_frequency_hz(Dev, 30);
+    if (status)
+    {
+        led_debug(3000, 6, LED_BLUE_L);
+        return 0;
+    }
+    led_debug(1000, DevAddr, LED_GREEN_L);
+    return 1;
+}
+
+void Gget_Ranging_init()
+{
+  int i = 0;
+  // この部分は謎
+  while(i < vl53l8cx_NUM_SENSORS){
+    if(Ranging_Basic_init(i, &MDev[i]))
+    {
+      i++;
+    }
+  }
+}
+
+
+void vl53l8cxInitTask(void *param){
+  (void)param;
+  init_IO();
+  spiBeginTransaction(SPI_BAUDRATE_2MHZ);
+
+  // Ranging_Basic_init(7);
+  Gget_Ranging_init();
+
+  spiEndTransaction();
+  xSemaphoreGive(vl53l8cxInitDoneSem);
+  vTaskDelete(NULL);
+}
+
+
 /* Private functions implementation */
 
 void systemTask(void *arg)
@@ -168,6 +241,17 @@ void systemTask(void *arg)
   bool pass = true;
 
   ledInit();
+
+  vl53l8cxInitDoneSem = xSemaphoreCreateBinaryStatic(&vl53l8cxInitDoneSemBuffer);
+  ASSERT(vl53l8cxInitDoneSem);
+
+  if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 512, NULL, 4, NULL) != pdPASS) {
+    while(1);
+  }
+
+  // Wait until VL53L8CX initialization task has completed and deleted itself
+  xSemaphoreTake(vl53l8cxInitDoneSem, portMAX_DELAY);
+
   ledSet(CHG_LED, 1);
 
 #ifdef CONFIG_DEBUG_QUEUE_MONITOR

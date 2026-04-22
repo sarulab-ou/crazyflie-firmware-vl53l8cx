@@ -235,6 +235,8 @@ uint8_t VL53L8CX_RdMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
     return status;
 }
 
+
+
 uint8_t VL53L8CX_Reset_Sensor(VL53L8CX_Platform *p_platform)
 {
     uint8_t status = 0;
@@ -253,6 +255,27 @@ uint8_t VL53L8CX_Reset_Sensor(VL53L8CX_Platform *p_platform)
     /* Set pin CORE_1V8 to HIGH */
     VL53L8CX_WaitMs(p_platform, 100);
 
+    return status;
+}
+
+uint8_t VL53L8CX_RdMulti_chunk(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size)
+{
+    uint8_t status = 0;
+    uint8_t tmp;
+    Sel_Dev(p_platform->address);
+    uint16_t chunk_size = 0x020;
+    uint16_t chunk_num = size / chunk_size + ((size % chunk_size) ? 1 : 0);
+    uint16_t Rd_size = 0;
+    status |= VL53L8CX_RdByte(p_platform, 0x7fff, &tmp);
+    uint16_t offset = 0x0000;
+    status |= VL53L8CX_WaitMs_spi_pause(p_platform, 5);
+    for (uint16_t i = 0x0000; i < chunk_num; i++)
+    {
+        Rd_size = ((size - offset) >= chunk_size) ? chunk_size : (size - offset);
+        status |= VL53L8CX_RdMulti(p_platform, offset, p_values, Rd_size);
+        offset += Rd_size;
+        status |= VL53L8CX_WaitMs_spi_pause(p_platform, 5);
+    }
     return status;
 }
 

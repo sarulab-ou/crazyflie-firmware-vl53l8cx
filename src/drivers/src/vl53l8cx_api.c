@@ -23,6 +23,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+VL53L8CX_ResultsData Results;
+// VL53L8CX_Configuration Dev;
+VL53L8CX_Configuration MDev[vl53l8cx_NUM_SENSORS];
+
 void led_debug(int mm, int frequency, led_t led)
 {
     for (int i = 0; i < (int) (mm * frequency / 1000); i++)
@@ -379,6 +383,7 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     if (crc_checksum != (uint32_t)0xc0b6c9e)
     {
         // DEBUG_PRINT("FW error.\r\n");
+        led_debug(8000, 10, LED_BLUE_L);
         status |= VL53L8CX_STATUS_FW_CHECKSUM_FAIL;
         goto exit;
     }

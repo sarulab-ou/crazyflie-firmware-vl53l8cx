@@ -363,7 +363,7 @@ extern "C"
             uint32_t motion[32];
         } motion_indicator;
 #endif
-
+        VL53L8CX_Platform platform;
     } VL53L8CX_ResultsData;
 
     union Block_header
@@ -378,7 +378,7 @@ extern "C"
     };
 
 #ifndef vl53l8cx_NUM_SENSORS
-        #define vl53l8cx_NUM_SENSORS 3
+        #define vl53l8cx_NUM_SENSORS 2
 #endif
         extern VL53L8CX_ResultsData Results;
         // extern VL53L8CX_Configuration Dev;  // Sensor configuration

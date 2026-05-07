@@ -97,9 +97,12 @@ xSemaphoreHandle canStartMutex;
 static StaticSemaphore_t canStartMutexBuffer;
 static xSemaphoreHandle vl53l8cxInitDoneSem;
 static StaticSemaphore_t vl53l8cxInitDoneSemBuffer;
+static xSemaphoreHandle tmpDoneSem;
+static StaticSemaphore_t tmpDoneSemBuffer;
 
 /* Private functions */
 static void systemTask(void *arg);
+void tmptask(void *arg);
 
 /* Public functions */
 void systemLaunch(void)
@@ -127,18 +130,18 @@ void systemInit(void)
   crtpInit();
   consoleInit();
 
-  DEBUG_PRINT("----------------------------\n");
-  DEBUG_PRINT("%s is up and running!\n", platformConfigGetDeviceTypeName());
+  // DEBUG_PRINT("----------------------------\n");
+  // DEBUG_PRINT("%s is up and running!\n", platformConfigGetDeviceTypeName());
 
-  if (V_PRODUCTION_RELEASE) {
-    DEBUG_PRINT("Production release %s\n", V_STAG);
-  } else {
-    DEBUG_PRINT("Build %s:%s (%s) %s\n", V_SLOCAL_REVISION,
-                V_SREVISION, V_STAG, (V_MODIFIED)?"MODIFIED":"CLEAN");
-  }
-  DEBUG_PRINT("I am 0x%08X%08X%08X and I have %dKB of flash!\n",
-              *((int*)(MCU_ID_ADDRESS+8)), *((int*)(MCU_ID_ADDRESS+4)),
-              *((int*)(MCU_ID_ADDRESS+0)), *((short*)(MCU_FLASH_SIZE_ADDRESS)));
+  // if (V_PRODUCTION_RELEASE) {
+  //   DEBUG_PRINT("Production release %s\n", V_STAG);
+  // } else {
+  //   DEBUG_PRINT("Build %s:%s (%s) %s\n", V_SLOCAL_REVISION,
+  //               V_SREVISION, V_STAG, (V_MODIFIED)?"MODIFIED":"CLEAN");
+  // }
+  // DEBUG_PRINT("I am 0x%08X%08X%08X and I have %dKB of flash!\n",
+  //             *((int*)(MCU_ID_ADDRESS+8)), *((int*)(MCU_ID_ADDRESS+4)),
+  //             *((int*)(MCU_ID_ADDRESS+0)), *((short*)(MCU_FLASH_SIZE_ADDRESS)));
 
   configblockInit();
   storageInit();
@@ -169,52 +172,102 @@ bool systemTest()
 
 int Ranging_Basic_init(uint16_t DevAddr, VL53L8CX_Configuration* Dev)
 {
-    uint8_t status, isAlive;
+    uint8_t status = 1;
+    uint8_t isAlive = 0;
     Dev->platform.address = DevAddr;
 
     // (Optional) Check if there is a VL53L8CX sensor connected
     status = vl53l8cx_is_alive(Dev, &isAlive);
-    if (!isAlive || status)
+    if (isAlive == 0 || status != VL53L8CX_STATUS_OK)
     {
         led_debug(3000, 1,LED_BLUE_L);
-        // Retry up to 10 times with 50ms delay between retries
-        int retry_count = 0;
-        while(!isAlive && retry_count < 10){
-          vTaskDelay(M2T(50));
-          vl53l8cx_is_alive(Dev, &isAlive);
-          led_debug(100, 1,LED_BLUE_L);
-          retry_count++;
-        }
-        if (!isAlive) {
-          return 0;
-        }
+        return 0;
     }
 
     status = vl53l8cx_init(Dev);
-    if (status)
+    if (status != VL53L8CX_STATUS_OK)
     {
         led_debug(1000, 3, LED_BLUE_L);
         return 0;
     }
 
     status = vl53l8cx_set_ranging_frequency_hz(Dev, 30);
-    if (status)
+    if (status != VL53L8CX_STATUS_OK)
     {
         led_debug(3000, 6, LED_BLUE_L);
         return 0;
+    }else{
+        led_debug(1000, DevAddr+1, LED_GREEN_L);
+        return 1;
     }
-    led_debug(1000, DevAddr, LED_GREEN_L);
-    return 1;
+}
+
+uint8_t DevAddr[11];
+void Gget_Ranging()
+{
+    // uint8_t status, loop, isAlive, isReady;
+    // char i;
+    int k;
+
+    for (k = 0; k < vl53l8cx_NUM_SENSORS; k++) DevAddr[k] = 0xFF;
+    k = Ser_IT();  // In The platform.cpp
+
+    if (k == 0)
+    {
+        return;
+    }
+
+    if ((k & 0x0020) != 0) DevAddr[10] = 10;
+    if ((k & 0x0040) != 0) DevAddr[9] = 9;
+    if ((k & 0x0080) != 0) DevAddr[8] = 8;
+    if ((k & 0x0100) != 0) DevAddr[7] = 7;
+    if ((k & 0x0200) != 0) DevAddr[6] = 6;
+    if ((k & 0x0400) != 0) DevAddr[5] = 5;
+    if ((k & 0x0800) != 0) DevAddr[4] = 4;
+    if ((k & 0x1000) != 0) DevAddr[3] = 3;
+    if ((k & 0x2000) != 0) DevAddr[2] = 2;
+    if ((k & 0x4000) != 0) DevAddr[1] = 1;
+    if ((k & 0x8000) != 0) DevAddr[0] = 0;
+    for (k = 0; k < vl53l8cx_NUM_SENSORS; k++)
+    {
+        if (DevAddr[k] != 0xFF)
+        {
+            MDev[DevAddr[k]].platform.address = DevAddr[k];
+            vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
+            // led_debug(1000, (DevAddr[k] + 1) * 5, LED_BLUE_L);
+            // for (i = 0; i < 16; i++)
+            // {
+            //     if (Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i] == 5)
+            //     {
+            //         if(100 < Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i] && Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i] < 300){
+            //         led_debug(200, 5 * (DevAddr[k]+1), LED_GREEN_L);
+            //         // DEBUG_PRINT("%d ", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
+            //         }else{
+            //         led_debug(200, 5 * (DevAddr[k]+1), LED_GREEN_R);
+            //         // DEBUG_PRINT("%d ", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
+            //         }
+            //     }
+            //     else
+            //     {
+            //         led_debug(200, 5 * (DevAddr[k]+1), LED_BLUE_L);
+            //         // DEBUG_PRINT("er");
+            //     }
+            //     // DEBUG_PRINT("\n");
+            // }
+        }
+    }
 }
 
 void Gget_Ranging_init()
 {
   int i = 0;
+  uint8_t isInited = 0;
   // この部分は謎
   while(i < vl53l8cx_NUM_SENSORS){
-    if(Ranging_Basic_init(i, &MDev[i]))
-    {
+    isInited = Ranging_Basic_init(i, &MDev[i]);
+    if(isInited == 1){
       i++;
+      vTaskDelay(pdMS_TO_TICKS(500));
     }
   }
 }
@@ -233,6 +286,28 @@ void vl53l8cxInitTask(void *param){
   vTaskDelete(NULL);
 }
 
+void tmptask(void *param){
+  (void)param;
+  xSemaphoreTake(vl53l8cxInitDoneSem, portMAX_DELAY);
+  ledClearAll();
+  spiBeginTransaction(SPI_BAUDRATE_2MHZ);
+  uint8_t status,addr;
+  for(addr = 0; addr < vl53l8cx_NUM_SENSORS; addr++){
+        status = vl53l8cx_start_ranging(&MDev[addr]);
+        if(status){
+            led_debug(2000, addr+3, LED_BLUE_L);
+        }
+    }
+  spiEndTransaction();
+    xSemaphoreGive(tmpDoneSem);
+    while(1){
+        spiBeginTransaction(SPI_BAUDRATE_2MHZ);
+        Gget_Ranging();
+        spiEndTransaction();
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
 
 /* Private functions implementation */
 
@@ -244,13 +319,16 @@ void systemTask(void *arg)
 
   vl53l8cxInitDoneSem = xSemaphoreCreateBinaryStatic(&vl53l8cxInitDoneSemBuffer);
   ASSERT(vl53l8cxInitDoneSem);
+  tmpDoneSem = xSemaphoreCreateBinaryStatic(&tmpDoneSemBuffer);
+  ASSERT(tmpDoneSem);
 
-  if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 512, NULL, 4, NULL) != pdPASS) {
+  if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 384, NULL, 2, NULL) != pdPASS) {
     while(1);
   }
-
+  xTaskCreate(tmptask, "tmptask", 512, NULL, 2, NULL);
   // Wait until VL53L8CX initialization task has completed and deleted itself
-  xSemaphoreTake(vl53l8cxInitDoneSem, portMAX_DELAY);
+       // TODO: これの位置を変えて実験してみる！！！！！！！！！！！！！！！！！！
+  xSemaphoreTake(tmpDoneSem, portMAX_DELAY);
 
   ledSet(CHG_LED, 1);
 
@@ -372,7 +450,7 @@ void systemTask(void *arg)
     pass = false;
     DEBUG_PRINT("peerLocalization [FAIL]\n");
   }
-
+  
   //Start the firmware
   if(pass)
   {

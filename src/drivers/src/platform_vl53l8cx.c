@@ -68,7 +68,7 @@ uint16_t Ser_IT()
     cs_low(CS0);
     spiExchange(1, &read_addr_low, &Intr_byte[0]);
     spiExchange(1, &dummy, &Intr_byte[1]);  // Dummy byte to clock out the high byte
-    Intr = (uint16_t)Intr_byte[0];
+    Intr = (uint16_t)Intr_byte[0] << 8;
     Intr |= (uint16_t)Intr_byte[1];
     cs_high(CS0);
     return Intr;

@@ -741,7 +741,7 @@ uint8_t vl53l8cx_get_ranging_data(VL53L8CX_Configuration *p_dev, VL53L8CX_Result
     status |= VL53L8CX_RdMulti(&(p_dev->platform), 0x0, p_dev->temp_buffer, p_dev->data_read_size);
     p_dev->streamcount = p_dev->temp_buffer[0];
     VL53L8CX_SwapBuffer(p_dev->temp_buffer, (uint16_t)p_dev->data_read_size);
-
+    p_results->platform.address = p_dev->platform.address;
     // Start conversion at position 16 to avoid headers
     for (i = (uint32_t)16; i < (uint32_t)p_dev->data_read_size; i += (uint32_t)4)
     {

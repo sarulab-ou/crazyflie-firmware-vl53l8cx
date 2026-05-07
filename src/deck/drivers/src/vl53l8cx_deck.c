@@ -42,9 +42,9 @@ const deckPin_t g_vl53l8cx_cs[vl53l8cx_NUM_SENSORS] = {
 };
 
 /* ===== Driver state (ultra-low RAM) ===== */
-static volatile uint8_t g_running = 0;
-static uint8_t g_rate_hz = vl53l8cx_DEFAULT_RATE_HZ;
-static uint32_t g_tick = 0;
+// static volatile uint8_t g_running = 0;
+// static uint8_t g_rate_hz = vl53l8cx_DEFAULT_RATE_HZ;
+// static uint32_t g_tick = 0;
 
 
 static TaskHandle_t g_task = NULL;
@@ -63,14 +63,14 @@ __attribute__((section(".ccmram")))
 // static VL53L8CX_ResultsData g_res;
 
 /* public last distances */
-static uint16_t g_ranges_mm[vl53l8cx_NUM_SENSORS];
+// static uint16_t g_ranges_mm[vl53l8cx_NUM_SENSORS];
 
 // #ifdef vl53l8cx_USE_CCM
 // __attribute__((section(".ccmram")))
 // #endif
 
 
-uint8_t callbacked = 0;
+// uint8_t callbacked = 0;
 
 int Init_Sensor(uint16_t DevAddr, uint8_t Frequency)
 {
@@ -115,84 +115,10 @@ void Start_Ranging(uint16_t DevAddr)
     status = vl53l8cx_start_ranging(&MDev[DevAddr]);
 }
 
-uint8_t DevAddr[11];
+// uint8_t DevAddr[11];
 uint8_t ReStart[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t NumRdy[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-// この関数は、すべてのセンサーから距離測定データを取得し、表示する
-// さらに、データが取得できなかったセンサーについては、再起動を試みる
-// この関数の中で呼ばれる関数は以下の通り
-// vl53l8cx_get_ranging_data() : 距離測定データの取得
-// Start_Ranging() : 距離測定の開始／再起動
-void Gget_Ranging()
-{
-    // uint8_t status, loop, isAlive, isReady;
-    char i;
-    int k;
-
-    for (k = 0; k < vl53l8cx_NUM_SENSORS; k++) DevAddr[k] = 0xFF;
-    k = Ser_IT();  // In The platform.cpp
-    DEBUG_PRINT("Ser_IT returned: 0x%04X\n", k);
-
-    if (k == 0)
-    {
-        return;
-    }
-
-    if ((k & 0x0020) != 0) DevAddr[10] = 10;
-    if ((k & 0x0040) != 0) DevAddr[9] = 9;
-    if ((k & 0x0080) != 0) DevAddr[8] = 8;
-    if ((k & 0x0100) != 0) DevAddr[7] = 7;
-    if ((k & 0x0200) != 0) DevAddr[6] = 6;
-    if ((k & 0x0400) != 0) DevAddr[5] = 5;
-    if ((k & 0x0800) != 0) DevAddr[4] = 4;
-    if ((k & 0x1000) != 0) DevAddr[3] = 3;
-    if ((k & 0x2000) != 0) DevAddr[2] = 2;
-    if ((k & 0x4000) != 0) DevAddr[1] = 1;
-    if ((k & 0x8000) != 0) DevAddr[0] = 0;
-    for (k = 0; k < vl53l8cx_NUM_SENSORS; k++)
-    {
-        if (DevAddr[k] != 0xFF)
-        {
-            MDev[DevAddr[k]].platform.address = DevAddr[k];
-            vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
-            // DEBUG_PRINT("[%d]Print data no : %3u\n", DevAddr[k], MDev[DevAddr[k]].streamcount);
-            DEBUG_PRINT("[%2d] ", DevAddr[k]);
-            // Resultsの内容をすべて表示する
-            DEBUG_PRINT("T=%dC, nb0=%u, d0=%d, st0=%u\n", (int)Results.silicon_temp_degc,
-                        (unsigned)Results.nb_target_detected[0], (int)Results.distance_mm[0],
-                        (unsigned)Results.target_status[0]);
-            for (i = 0; i < 16; i++)
-            {
-                if (Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i] == 5)
-                {
-                    DEBUG_PRINT("[%4d]", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-                }
-                else
-                {
-                    DEBUG_PRINT("-%02X-", Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-                }
-            }
-            DEBUG_PRINT(" R[%3d]", NumRdy[k]);
-            DEBUG_PRINT(" S[%d]", ReStart[k]);
-            DEBUG_PRINT("\n");
-            NumRdy[k] = 0;
-        }
-        else
-        {
-            NumRdy[k]++;
-        }
-    }
-    for (k = 0; k < vl53l8cx_NUM_SENSORS; k++)
-    {
-        if (NumRdy[k] > 250)
-        {
-            DEBUG_PRINT("Restart DevAddr[%d] NumRdy[%d]\n", k, NumRdy[k]);
-            Start_Ranging(k);
-            ReStart[k]++;
-        }
-    }
-}
 
 /* ===== CS helpers ===== */
 static inline void cs_low(int i) { vl53l8cx_GPIO_WRITE(g_vl53l8cx_cs[i], LOW); }
@@ -200,47 +126,76 @@ static inline void cs_high(int i) { vl53l8cx_GPIO_WRITE(g_vl53l8cx_cs[i], HIGH);
 
 void tmp()
 {   
-    uint16_t devAddr= 0;
-    uint8_t status, loop, isReady;
-    uint8_t i,j;
-    spiBeginTransaction(SPI_BAUDRATE_2MHZ);
+    uint32_t total = 0;
     while(1){
-        status = vl53l8cx_start_ranging(&MDev[devAddr]);
-        loop = 0;
-        // led_debug(1000, 10, LED_BLUE_L);
-        while (loop < 30000)
-        {
-            status = vl53l8cx_check_data_ready(&MDev[devAddr], &isReady);
-            if (isReady)
-            {
-                vl53l8cx_get_ranging_data(&MDev[devAddr], &Results);
-                DEBUG_PRINT("dev %3u\n", devAddr);
-
-                for(i = 4; 0<i; i--){
-                  for(j = 4; 0<j; j--){
-                    DEBUG_PRINT("%4d ", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * (i *j)-1]);
-                  }
-                  DEBUG_PRINT("\n");
-                }
-                DEBUG_PRINT("\n");
-                // for (i = 0; i < 16; i++)
-                // {
-                //     DEBUG_PRINT("Zone: %3d, Status: %3u, Dist: %4d mm\n", i,
-                //                 Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i],
-                //                 Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-                // }
-                // DEBUG_PRINT("\n");
-                loop++;
-                VL53L8CX_WaitMs(&(MDev[devAddr].platform), 500);
-                break;
-                
-            }
-            // DEBUG_PRINT("l\n");
-            VL53L8CX_WaitMs(&(MDev[devAddr].platform), 100);
+        total = 0;
+        for(int i = 0; i<16;i++){
+            total += Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i];
         }
-        devAddr = (devAddr + 1) % vl53l8cx_NUM_SENSORS;
+        // led_debug(1000, (Results.platform.address + 1) * 5, LED_GREEN_L);
+        if (100 < (int)(total / 16) && (int)(total / 16) < 300)
+        {
+            if(Results.platform.address == 0){
+                led_debug(200, 5, LED_GREEN_L);
+            }else if(Results.platform.address == 1){
+                led_debug(200, 5, LED_GREEN_R);
+            }
+        }else if(total == 0){
+            led_debug(1000, 1, LED_BLUE_L);
+        }else{
+            led_debug(200, (Results.platform.address + 1)*5, LED_BLUE_L);
+        }
+
+        // if(Results.target_status[0] != 5 && Results.target_status[0] != 9){
+        //     led_debug(200, Results.target_status[0], LED_GREEN_L);
+        // }
+        // DEBUG_PRINT("%lu\n", total);
+        // DEBUG_PRINT("Add%d: %lu\n", Results.platform.address, (int32_t)(total/16));
+        // vTaskDelay(pdMS_TO_TICKS(500));
     }
-    spiEndTransaction();
+    // uint16_t devAddr= 2;
+    // uint8_t loop, isReady;
+    // uint8_t addr, status;
+    // uint8_t i,j,k;
+    // spiBeginTransaction(SPI_BAUDRATE_2MHZ);
+
+    // while(1){
+    //     loop = 0;
+    //     // led_debug(1000, 10, LED_BLUE_L);
+    //     while (loop < 30000)
+    //     {
+    //         status = vl53l8cx_check_data_ready(&MDev[devAddr], &isReady);
+    //         DEBUG_PRINT("Addr%d is %d\n", devAddr, isReady);
+    //         if (isReady)
+    //         {
+    //             vl53l8cx_get_ranging_data(&MDev[devAddr], &Results);
+    //             DEBUG_PRINT("dev %3u\n", devAddr);
+
+    //             for(i = 4; 0<i; i--){
+    //               for(j = 4; 0<j; j--){
+    //                 DEBUG_PRINT("%4d ", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * (i *j)-1]);
+    //               }
+    //               DEBUG_PRINT("\n");
+    //             }
+    //             DEBUG_PRINT("\n");
+    //             // for (i = 0; i < 16; i++)
+    //             // {
+    //             //     DEBUG_PRINT("Zone: %3d, Status: %3u, Dist: %4d mm\n", i,
+    //             //                 Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i],
+    //             //                 Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
+    //             // }
+    //             // DEBUG_PRINT("\n");
+    //             loop++;
+    //             VL53L8CX_WaitMs(&(MDev[devAddr].platform), 500);
+    //             break;
+                
+    //         }
+    //         // DEBUG_PRINT("l\n");
+    //         VL53L8CX_WaitMs(&(MDev[devAddr].platform), 100);
+    //     }
+    //     devAddr = (devAddr + 1) % vl53l8cx_NUM_SENSORS;
+    // }
+    // spiEndTransaction();
 }
 
 static void vl53l8cxTask(void* arg)
@@ -248,17 +203,18 @@ static void vl53l8cxTask(void* arg)
     (void)arg;
     systemWaitStart();
     // int tmp_sensor = 0;
-    for (;;)
-    {
-        // DEBUG_PRINT("w\n");
-        vTaskDelay(pdMS_TO_TICKS(100));
-        // DEBUG_PRINT("w\n");
-        if (callbacked)
-        {
-            // DEBUG_PRINT("b\n");
-            break;
-        }
-    }
+    // for (;;)
+    // {
+    //     // DEBUG_PRINT("w\n");
+    //     vTaskDelay(pdMS_TO_TICKS(100));
+    //     // DEBUG_PRINT("w\n");
+    //     if (callbacked)
+    //     {
+    //         // DEBUG_PRINT("b\n");
+    //         break;
+    //     }
+    // }
+    ledClearAll();
     // Gget_Ranging();
     tmp();
 
@@ -305,14 +261,14 @@ static void vl53l8cxTask(void* arg)
     //     }
     //     VL53L8CX_WaitMs_spi_pause(&(MDev[tmp_sensor].platform), 5);
     // }
-    spiEndTransaction();
+    // spiEndTransaction();
     vTaskDelete(NULL);
 }
 
-static void onEnableUpdated()
-{
-    callbacked = 1;
-}
+// static void onEnableUpdated()
+// {
+//     callbacked = 1;
+// }
 
 /* ===== Robust blob address snoop (FLASH vs RAM) ===== */
 static void printBlobAddresses(void)
@@ -320,7 +276,7 @@ static void printBlobAddresses(void)
     if (g_task == NULL)
     // if (g_running && g_task == NULL)
     {
-        BaseType_t rc = xTaskCreate(vl53l8cxTask, "vl53l8cx", 384, NULL, tskIDLE_PRIORITY + 2, &g_task);
+        BaseType_t rc = xTaskCreate(vl53l8cxTask, "vl53l8cx", 512, NULL, tskIDLE_PRIORITY + 2, &g_task);
         if (rc == pdPASS)
         {
             // DEBUG_PRINT("OK\n");
@@ -333,25 +289,25 @@ static void printBlobAddresses(void)
 }
 
 /* ===== Params / Logs ===== */
-PARAM_GROUP_START(vl53l8cx)
-PARAM_ADD_WITH_CALLBACK(PARAM_UINT8, enable, &g_running, onEnableUpdated)
-PARAM_ADD(PARAM_UINT8, rate_hz, &g_rate_hz)
-PARAM_GROUP_STOP(vl53l8cx)
+// PARAM_GROUP_START(vl53l8cx)
+// PARAM_ADD_WITH_CALLBACK(PARAM_UINT8, enable, &g_running, onEnableUpdated)
+// PARAM_ADD(PARAM_UINT8, rate_hz, &g_rate_hz)
+// PARAM_GROUP_STOP(vl53l8cx)
 
-LOG_GROUP_START(vl53l8cx)
-LOG_ADD(LOG_UINT32, tick, &g_tick)
-LOG_ADD(LOG_UINT16, s0, &g_ranges_mm[0])
-// LOG_ADD(LOG_UINT16, s1,  &g_ranges_mm[1])
-// LOG_ADD(LOG_UINT16, s2,  &g_ranges_mm[2])
-// LOG_ADD(LOG_UINT16, s3,  &g_ranges_mm[3])
-// LOG_ADD(LOG_UINT16, s4,  &g_ranges_mm[4])
-// LOG_ADD(LOG_UINT16, s5,  &g_ranges_mm[5])
-// LOG_ADD(LOG_UINT16, s6,  &g_ranges_mm[6])
-// LOG_ADD(LOG_UINT16, s7,  &g_ranges_mm[7])
-// LOG_ADD(LOG_UINT16, s8,  &g_ranges_mm[8])
-// LOG_ADD(LOG_UINT16, s9,  &g_ranges_mm[9])
-// LOG_ADD(LOG_UINT16, s10, &g_ranges_mm[10])
-LOG_GROUP_STOP(vl53l8cx)
+// LOG_GROUP_START(vl53l8cx)
+// LOG_ADD(LOG_UINT32, tick, &g_tick)
+// LOG_ADD(LOG_UINT16, s0, &g_ranges_mm[0])
+// // LOG_ADD(LOG_UINT16, s1,  &g_ranges_mm[1])
+// // LOG_ADD(LOG_UINT16, s2,  &g_ranges_mm[2])
+// // LOG_ADD(LOG_UINT16, s3,  &g_ranges_mm[3])
+// // LOG_ADD(LOG_UINT16, s4,  &g_ranges_mm[4])
+// // LOG_ADD(LOG_UINT16, s5,  &g_ranges_mm[5])
+// // LOG_ADD(LOG_UINT16, s6,  &g_ranges_mm[6])
+// // LOG_ADD(LOG_UINT16, s7,  &g_ranges_mm[7])
+// // LOG_ADD(LOG_UINT16, s8,  &g_ranges_mm[8])
+// // LOG_ADD(LOG_UINT16, s9,  &g_ranges_mm[9])
+// // LOG_ADD(LOG_UINT16, s10, &g_ranges_mm[10])
+// LOG_GROUP_STOP(vl53l8cx)
 
 /* ===== Deck glue ===== */
 static void vl53l8cxInit(DeckInfo* info)
@@ -360,7 +316,7 @@ static void vl53l8cxInit(DeckInfo* info)
     printBlobAddresses();
 }
 
-bool vl53l8cxIsRunning(void) { return g_running != 0; }
+// bool vl53l8cxIsRunning(void) { return g_running != 0; }
 // uint16_t vl53l8cxGetLastMm(int index) { if (index < 0 || index >= vl53l8cx_NUM_SENSORS) return 0; return
 // g_ranges_mm[index];
 // }

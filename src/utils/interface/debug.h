@@ -49,29 +49,11 @@
 
 void debugInit(void);
 
-#if defined(UNIT_TEST_MODE)
-  #include <stdio.h>
-  #define DEBUG_PRINT(fmt, ...) printf(DEBUG_FMT(fmt), ##__VA_ARGS__)
-  #define DEBUG_PRINT_OS(fmt, ...) printf(DEBUG_FMT(fmt), ##__VA_ARGS__)
-#elif defined(CONFIG_DEBUG_PRINT_ON_UART1)
-  #define DEBUG_PRINT(fmt, ...) uartPrintf(DEBUG_FMT(fmt), ##__VA_ARGS__)
-  #define DEBUG_PRINT_OS(fmt, ...) uartPrintf(DEBUG_FMT(fmt), ##__VA_ARGS__)
-#elif defined(DEBUG_PRINT_ON_SWO)
-  #define DEBUG_PRINT(fmt, ...) eprintf(ITM_SendChar, fmt, ## __VA_ARGS__)
-  #define DEBUG_PRINT_OS(fmt, ...) eprintf(ITM_SendChar, fmt, ## __VA_ARGS__)
-#elif defined(DEBUG_PRINT_ON_SEGGER_RTT)
-  #define DEBUG_PRINT(fmt, ...) SEGGER_RTT_printf(0, fmt, ## __VA_ARGS__)
-  #define DEBUG_PRINT_OS(fmt, ...) SEGGER_RTT_printf(0, fmt, ## __VA_ARGS__)
-#else // Debug using radio or USB
-  #define DEBUG_PRINT(fmt, ...) consolePrintf(DEBUG_FMT(fmt), ##__VA_ARGS__)
-  #define DEBUG_PRINT_OS(fmt, ...) consolePrintf(DEBUG_FMT(fmt), ##__VA_ARGS__)
-  //#define DEBUG_PRINT(fmt, ...)
-#endif
+#define DEBUG_PRINT(fmt, ...)
+#define DEBUG_PRINT_OS(fmt, ...)
 
-#ifndef PRINT_OS_DEBUG_INFO
-  #undef DEBUG_PRINT_OS
-  #define DEBUG_PRINT_OS(fmt, ...)
-#endif
+#define DEBUG_PRINT(fmt, ...)
+#define DEBUG_PRINT_OS(fmt, ...)
 
 
 #ifdef TEST_PRINTS

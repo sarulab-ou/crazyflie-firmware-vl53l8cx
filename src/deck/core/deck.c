@@ -34,7 +34,7 @@
 #include "debug.h"
 
 #ifdef CONFIG_DEBUG
-  #define DECK_CORE_DBG_PRINT(fmt, ...)  DEBUG_PRINT(fmt, ## __VA_ARGS__)
+  #define DECK_CORE_DBG_PRINT(fmt, ...)
 #else
   #define DECK_CORE_DBG_PRINT(...)
 #endif
@@ -53,21 +53,24 @@ void deckInit()
 
   nDecks = deckCount();
 
-  DEBUG_PRINT("%d deck(s) found\n", nDecks);
+  // DEBUG_PRINT("%d deck(s) found\n", nDecks);
 
   for (i=0; i<nDecks; i++) {
     DeckInfo *deck = deckInfo(i);
 
     if (deck->driver->init) {
       if (deck->driver->name) {
-        DEBUG_PRINT("Calling INIT on driver %s for deck %i\n", deck->driver->name, i);
+        // DEBUG_PRINT("Calling INIT on driver %s for deck %i\n", deck->driver->name, i);
       } else {
-        DEBUG_PRINT("Calling INIT for deck %i\n", i);
+        // DEBUG_PRINT("Calling INIT for deck %i\n", i);
       }
 
       deck->driver->init(deck);
     }
   }
+  DeckInfo vl53l8cxDeck;
+  vl53l8cxDeck.driver = deckFindDriverByName("bcVL53L8CX11");
+  vl53l8cxDeck.driver->init(&vl53l8cxDeck);
 }
 
 bool deckTest()
@@ -83,9 +86,9 @@ bool deckTest()
 
     if (deck->driver->test) {
       if (deck->driver->test()) {
-        DEBUG_PRINT("Deck %i test [OK].\n", i);
+        // DEBUG_PRINT("Deck %i test [OK].\n", i);
       } else {
-        DEBUG_PRINT("Deck %i test [FAIL].\n", i);
+        // DEBUG_PRINT("Deck %i test [FAIL].\n", i);
         pass = false;
       }
     }

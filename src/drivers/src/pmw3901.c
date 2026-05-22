@@ -33,6 +33,7 @@
 #include "log.h"
 #include "param.h"
 #include "sleepus.h"
+#include "vl53l8cx_api.h"
 
 
 static bool isInit = false;
@@ -168,8 +169,54 @@ static void InitRegisters(const deckPin_t csPin)
   registerWrite(csPin, 0x54, 0x00);
 }
 
+void bit_debug(uint8_t value){
+  ledClearAll();
+  if(value & 0x80){
+    led_debug(1000, 1, LED_GREEN_L);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+  if(value & 0x40){
+    led_debug(1000, 2, LED_GREEN_L);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+  if(value & 0x20){
+    led_debug(1000, 3, LED_GREEN_L);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+  if(value & 0x10){
+    led_debug(1000, 4, LED_GREEN_L);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+  if(value & 0x08){
+    led_debug(1000, 1, LED_GREEN_R);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+  if(value & 0x04){
+    led_debug(1000, 2, LED_GREEN_R);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+  if(value & 0x02){
+    led_debug(1000, 3, LED_GREEN_R);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+  if(value & 0x01){
+    led_debug(1000, 4, LED_GREEN_R);
+  }else{
+    vTaskDelay(M2T(1000));
+  }
+}
+
 bool pmw3901Init(const deckPin_t csPin)
 {
+  ledClearAll();
+  led_debug(1000, 5, LED_BLUE_L);
   if (isInit) {
     return true;
   }
@@ -191,8 +238,10 @@ bool pmw3901Init(const deckPin_t csPin)
   uint8_t chipId    = registerRead(csPin, 0x00);
   uint8_t invChipId = registerRead(csPin, 0x5f);
 
-  DEBUG_PRINT("Motion chip id: 0x%x:0x%x\n", chipId, invChipId);
-
+  // DEBUG_PRINT("Motion chip id: 0x%x:0x%x\n", chipId, invChipId);
+  bit_debug(chipId);
+  led_debug(1000, 5, LED_BLUE_L);
+  bit_debug(invChipId);
   if (chipId == 0x49 && invChipId == 0xB6)
   {
     // Power on reset
@@ -210,7 +259,9 @@ bool pmw3901Init(const deckPin_t csPin)
     InitRegisters(csPin);
 
     isInit = true;
-  }
+  }else{
+    led_debug(2000, 5, LED_GREEN_L);
+    }
 
   return isInit;
 }

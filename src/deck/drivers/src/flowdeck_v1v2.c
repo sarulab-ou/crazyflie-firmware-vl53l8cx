@@ -40,6 +40,7 @@
 
 #include "usec_time.h"
 #include <stdlib.h>
+#include "vl53l8cx_api.h"
 
 #define AVERAGE_HISTORY_LENGTH 4
 #define OULIER_LIMIT 100
@@ -76,7 +77,7 @@ static bool useAdaptiveStd = false;
 // (will not work if useAdaptiveStd is on)
 static float flowStdFixed = 2.0f;
 
-#define NCS_PIN DECK_GPIO_IO3
+#define NCS_PIN DECK_GPIO_IO1
 
 
 static void flowdeckTask(void *param)
@@ -86,7 +87,7 @@ static void flowdeckTask(void *param)
   uint64_t lastTime  = usecTimestamp();
   while(1) {
     vTaskDelay(10);
-
+    led_debug(200, 5, LED_GREEN_L);
     pmw3901ReadMotion(NCS_PIN, &currentMotion);
 
     // Flip motion information to comply with sensor mounting
@@ -199,7 +200,7 @@ static const DeckDriver flowdeck1_deck = {
   .vid = 0xBC,
   .pid = 0x0A,
   .name = "bcFlow",
-  .usedGpio = DECK_USING_IO_3,
+  .usedGpio = DECK_USING_IO_1,
   .usedPeriph = DECK_USING_I2C | DECK_USING_SPI,
   .requiredEstimator = StateEstimatorTypeKalman,
 
@@ -230,14 +231,15 @@ static void flowdeck2Init()
 
 static bool flowdeck2Test()
 {
+  ledClearAll();
   if (!isInit2) {
+    led_debug(3000, 5, LED_BLUE_L);
     DEBUG_PRINT("Error while initializing the PMW3901 sensor\n");
     return false;
   }
 
   // Test the VL53L1 driver
   const DeckDriver *zRanger = deckFindDriverByName("bcZRanger2");
-
   return zRanger->test();
 }
 
@@ -246,7 +248,7 @@ static const DeckDriver flowdeck2_deck = {
   .pid = 0x0F,
   .name = "bcFlow2",
 
-  .usedGpio = DECK_USING_IO_3,
+  .usedGpio = DECK_USING_IO_1,
   .usedPeriph = DECK_USING_I2C | DECK_USING_SPI,
   .requiredEstimator = StateEstimatorTypeKalman,
 

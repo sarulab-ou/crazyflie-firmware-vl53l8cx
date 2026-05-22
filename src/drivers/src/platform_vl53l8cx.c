@@ -211,6 +211,32 @@ uint8_t VL53L8CX_WrMultiFW(VL53L8CX_Platform *p_platform, uint16_t RegisterAdres
     return status;
 }
 
+uint8_t VL53L8CX_WrBulk(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size)
+{
+    uint32_t offset = 0;
+    unsigned char rD;
+    unsigned char dummy[0x100];
+    uint8_t status = 0;
+    const uint32_t CHUNK_SIZE = 0x100;
+
+    uint8_t read_addr_high = (uint8_t)((RegisterAdress >> 8) | 0x80);
+    uint8_t read_addr_low = (uint8_t)(RegisterAdress & 0xFF);
+    Sel_Dev(p_platform->address);
+    cs_low(CS1);
+    spiExchange(1, &read_addr_high, &rD);
+    spiExchange(1, &read_addr_low, &rD);
+
+    while (offset < size)  // 64バイトごとに処理
+    {
+        uint32_t chunk_len = (size - offset) > CHUNK_SIZE ? CHUNK_SIZE : (size - offset);
+        spiExchange(chunk_len, &p_values[offset], dummy);
+        offset += chunk_len;
+    }
+    cs_high(CS1);
+    vTaskDelay_for_spi_pause(5);
+    return status;
+}
+
 // 呼び出しもとでspiBeginTransaction/EndTransactionで囲むこと
 // this function is called by API functions
 // status is updated with I2C error status

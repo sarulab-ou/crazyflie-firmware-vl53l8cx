@@ -36,11 +36,6 @@
 #include "platform_vl53l8cx.h"
 #include "vl53l8cx_buffers.h"
 
-/* ===== Provide your REAL CS pins here ===== */
-const deckPin_t g_vl53l8cx_cs[vl53l8cx_NUM_SENSORS] = {
-    (deckPin_t){0},
-};
-
 /* ===== Driver state (ultra-low RAM) ===== */
 // static volatile uint8_t g_running = 0;
 // static uint8_t g_rate_hz = vl53l8cx_DEFAULT_RATE_HZ;
@@ -120,10 +115,6 @@ uint8_t ReStart[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t NumRdy[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 
-/* ===== CS helpers ===== */
-static inline void cs_low(int i) { vl53l8cx_GPIO_WRITE(g_vl53l8cx_cs[i], LOW); }
-static inline void cs_high(int i) { vl53l8cx_GPIO_WRITE(g_vl53l8cx_cs[i], HIGH); }
-
 void tmp()
 {   
     uint32_t total = 0;
@@ -135,11 +126,7 @@ void tmp()
         // led_debug(1000, (Results.platform.address + 1) * 5, LED_GREEN_L);
         if (100 < (int)(total / 16) && (int)(total / 16) < 300)
         {
-            if(Results.platform.address == 0){
-                led_debug(200, 5, LED_GREEN_L);
-            }else if(Results.platform.address == 1){
-                led_debug(200, 5, LED_GREEN_R);
-            }
+            led_debug(200, 5, LED_GREEN_R);
         }else if(total == 0){
             led_debug(1000, 1, LED_BLUE_L);
         }else{
@@ -312,6 +299,8 @@ static void printBlobAddresses(void)
 /* ===== Deck glue ===== */
 static void vl53l8cxInit(DeckInfo* info)
 {
+    ledClearAll();
+    led_debug(2000, 10, LED_BLUE_L);
     (void)info;
     printBlobAddresses();
 }

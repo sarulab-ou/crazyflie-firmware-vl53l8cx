@@ -197,7 +197,7 @@ int Ranging_Basic_init(uint16_t DevAddr, VL53L8CX_Configuration* Dev)
         led_debug(3000, 6, LED_BLUE_L);
         return 0;
     }else{
-        led_debug(1000, DevAddr+1, LED_GREEN_L);
+        led_debug(200, (DevAddr+1) * 5, LED_GREEN_L);
         return 1;
     }
 }
@@ -234,7 +234,7 @@ void Gget_Ranging()
         {
             MDev[DevAddr[k]].platform.address = DevAddr[k];
             vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
-            // led_debug(1000, (DevAddr[k] + 1) * 5, LED_BLUE_L);
+            // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
             // for (i = 0; i < 16; i++)
             // {
             //     if (Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i] == 5)
@@ -322,10 +322,10 @@ void systemTask(void *arg)
   tmpDoneSem = xSemaphoreCreateBinaryStatic(&tmpDoneSemBuffer);
   ASSERT(tmpDoneSem);
 
-  if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 384, NULL, 2, NULL) != pdPASS) {
+  if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 1024, NULL, 2, NULL) != pdPASS) {
     while(1);
   }
-  xTaskCreate(tmptask, "tmptask", 512, NULL, 2, NULL);
+  xTaskCreate(tmptask, "tmptask", 1024, NULL, 2, NULL);
   // Wait until VL53L8CX initialization task has completed and deleted itself
        // TODO: これの位置を変えて実験してみる！！！！！！！！！！！！！！！！！！
   xSemaphoreTake(tmpDoneSem, portMAX_DELAY);
@@ -421,7 +421,7 @@ void systemTask(void *arg)
     DEBUG_PRINT("estimatorUKFTask [FAIL]\n");
   }
   #endif
-
+  
   if (deckTest() == false) {
     pass = false;
     DEBUG_PRINT("deck [FAIL]\n");

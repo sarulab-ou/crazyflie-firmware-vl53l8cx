@@ -34,7 +34,7 @@
 // #define DEBUG_DECK_ENUMERATION
 
 #ifdef DEBUG_DECK_ENUMERATION
-#define DECK_ENUM_DEBUG(fmt, ...) DEBUG_PRINT(fmt, ## __VA_ARGS__)
+#define DECK_ENUM_DEBUG(fmt, ...)
 #else
 #define DECK_ENUM_DEBUG(...)
 #endif
@@ -49,7 +49,7 @@
 #include "autoconf.h"
 
 #ifdef CONFIG_DEBUG
-  #define DECK_INFO_DBG_PRINT(fmt, ...)  DEBUG_PRINT(fmt, ## __VA_ARGS__)
+  #define DECK_INFO_DBG_PRINT(fmt, ...)
 #else
   #define DECK_INFO_DBG_PRINT(...)
 #endif
@@ -119,14 +119,14 @@ void printDeckInfo(DeckInfo *info)
   const char *rev = info->boardRevision ? info->boardRevision : "NoRev";
 #endif
 
-  DECK_INFO_DBG_PRINT("Deck %02x:%02x %s (Rev. %s)\n", info->vid, info->pid, name, rev);
-  DECK_INFO_DBG_PRINT("Used pin: %08x\n", (unsigned int)info->usedPins);
+  // DECK_INFO_DBG_PRINT("Deck %02x:%02x %s (Rev. %s)\n", info->vid, info->pid, name, rev);
+  // DECK_INFO_DBG_PRINT("Used pin: %08x\n", (unsigned int)info->usedPins);
 
   if (info->driver == &dummyDriver) {
-    DEBUG_PRINT("Warning! No driver found for deck.\n");
+    // DEBUG_PRINT("Warning! No driver found for deck.\n");
   } else {
-    DECK_INFO_DBG_PRINT("Driver implements: [ %s%s]\n",
-                        info->driver->init?"init ":"", info->driver->test?"test ":"");
+    // DECK_INFO_DBG_PRINT("Driver implements: [ %s%s]\n",
+    //                     info->driver->init?"init ":"", info->driver->test?"test ":"");
   }
 }
 
@@ -137,20 +137,20 @@ static void enumerateDecks(void)
 
   // Get all available discovery backends
   int numBackends = deckDiscoveryBackendCount();
-  DECK_ENUM_DEBUG("Found %d discovery backends\n", numBackends);
+  // DECK_ENUM_DEBUG("Found %d discovery backends\n", numBackends);
 
   for (int backendIdx = 0; backendIdx < numBackends; backendIdx++) {
     const DeckDiscoveryBackend_t* backend = deckDiscoveryGetBackend(backendIdx);
 
     if (!backend) {
-      DECK_ENUM_DEBUG("Backend %d is NULL\n", backendIdx);
+      // DECK_ENUM_DEBUG("Backend %d is NULL\n", backendIdx);
       continue;
     }
 
-    DECK_ENUM_DEBUG("Trying backend: %s\n", backend->name);
+    // DECK_ENUM_DEBUG("Trying backend: %s\n", backend->name);
 
     if (!backend->init || !backend->init()) {
-      DECK_ENUM_DEBUG("Backend %s failed to initialize\n", backend->name);
+      // DECK_ENUM_DEBUG("Backend %s failed to initialize\n", backend->name);
       continue;
     }
 
@@ -158,7 +158,7 @@ static void enumerateDecks(void)
     DeckInfo* deckInfo;
     while ((deckInfo = backend->getNextDeck()) != NULL) {
       if (nDecks >= DECK_MAX_COUNT) {
-        DECK_ENUM_DEBUG("Warning: Maximum deck count (%d) reached\n", DECK_MAX_COUNT);
+        // DECK_ENUM_DEBUG("Warning: Maximum deck count (%d) reached\n", DECK_MAX_COUNT);
         break;
       }
 
@@ -201,17 +201,17 @@ static void checkPeriphAndGpioConflicts(void)
       //
       uint32_t bus_mask = ~(DECK_USING_I2C | DECK_USING_SPI);
       if ((matchPeriph & bus_mask) != 0) {
-        DEBUG_PRINT("ERROR: Driver Periph usage conflicts with a "
-                    "previously enumerated deck driver. No decks will be "
-                    "initialized!\n");
+        // DEBUG_PRINT("ERROR: Driver Periph usage conflicts with a "
+                    // "previously enumerated deck driver. No decks will be "
+                    // "initialized!\n");
         noError = false;
       }
     }
 
     if (usedGpio & deckInfos[i].driver->usedGpio) {
-      DEBUG_PRINT("ERROR: Driver Gpio usage conflicts with a "
-                  "previously enumerated deck driver. No decks will be "
-                  "initialized!\n");
+      // DEBUG_PRINT("ERROR: Driver Gpio usage conflicts with a "
+                  // "previously enumerated deck driver. No decks will be "
+                  // "initialized!\n");
       noError = false;
     }
 
@@ -254,7 +254,7 @@ static bool registerRequiredEstimator(StateEstimatorType estimator)
     {
       if (requiredEstimator != estimator) {
         isError = true;
-        DEBUG_PRINT("WARNING: Two decks require different estimators\n");
+        // DEBUG_PRINT("WARNING: Two decks require different estimators\n");
       }
     }
   }

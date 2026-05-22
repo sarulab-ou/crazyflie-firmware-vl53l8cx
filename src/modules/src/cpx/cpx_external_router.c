@@ -92,9 +92,9 @@ static void route(Receiver_t receive, CPXRoutablePacket_t* rxp, RouteContext_t* 
     // this should never fail, as it should be checked when the packet is received
     // however, double checking doesn't harm
     if (cpxCheckVersion(rxp->route.version)) {
-      const CPXTarget_t source = rxp->route.source;
+      // const CPXTarget_t source = rxp->route.source;
       const CPXTarget_t destination = rxp->route.destination;
-      const uint16_t cpxDataLength = rxp->dataLength;
+      // const uint16_t cpxDataLength = rxp->dataLength;
 
       switch (destination) {
         case CPX_T_WIFI_HOST:

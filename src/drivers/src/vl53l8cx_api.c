@@ -320,17 +320,17 @@ uint8_t vl53l8cx_init(VL53L8CX_Configuration *p_dev)
     /* Download FW into VL53L8CX (page 0x09) */
     // DEBUG_PRINT("09\n");
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x09);
-    status |= VL53L8CX_WrMultiFW(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0], 0x8000, 0x09);
+    status |= VL53L8CX_WrBulk(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0], 0x8000);
     /* page 0x0a */
     // DEBUG_PRINT("0a\n");
     status |= VL53L8CX_WaitMs_spi_pause(&(p_dev->platform), 10);
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x0a);
-    status |= VL53L8CX_WrMultiFW(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0x8000], 0x8000, 0x0a);
+    status |= VL53L8CX_WrBulk(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0x8000], 0x8000);
     /* page 0x0b */
     // DEBUG_PRINT("0b\n");
     status |= VL53L8CX_WaitMs_spi_pause(&(p_dev->platform), 10);
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x0b);
-    status |= VL53L8CX_WrMultiFW(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0x10000], 0x5000, 0x0b);
+    status |= VL53L8CX_WrBulk(&(p_dev->platform), 0, (uint8_t *)&VL53L8CX_FIRMWARE[0x10000], 0x5000);
 
     status |= VL53L8CX_WrByte(&(p_dev->platform), 0x7fff, 0x01);
 

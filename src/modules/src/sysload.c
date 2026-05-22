@@ -91,8 +91,8 @@ static void timerHandler(xTimerHandle timer) {
     uint32_t taskCount = uxTaskGetSystemState(taskStats, TASK_MAX_COUNT, &totalRunTime);
     ASSERT(taskCount < TASK_MAX_COUNT);
 
-    uint32_t totalDelta = totalRunTime - previousTotalRunTime;
-    float f = 100.0 / totalDelta;
+    // uint32_t totalDelta = totalRunTime - previousTotalRunTime;
+    // float f = 100.0 / totalDelta;
 
     // Dumps the the CPU load and stack usage for all tasks
     // CPU usage is since last dump in % compared to total time spent in tasks. Note that time spent in interrupts will be included in measured time.
@@ -105,8 +105,8 @@ static void timerHandler(xTimerHandle timer) {
       taskData_t* previousTaskData = getPreviousTaskData(stats->xTaskNumber);
 
       uint32_t taskRunTime = stats->ulRunTimeCounter;
-      float load = f * (taskRunTime - previousTaskData->ulRunTimeCounter);
-      DEBUG_PRINT("%.2f \t%u \t%s\n", (double)load, stats->usStackHighWaterMark, stats->pcTaskName);
+      // float load = f * (taskRunTime - previousTaskData->ulRunTimeCounter);
+      // DEBUG_PRINT("%.2f \t%u \t%s\n", (double)load, stats->usStackHighWaterMark, stats->pcTaskName);
 
       previousTaskData->ulRunTimeCounter = taskRunTime;
     }

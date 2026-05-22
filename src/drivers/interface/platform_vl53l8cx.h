@@ -57,15 +57,15 @@ typedef struct
  * I2C access.
  */
 
-// #define VL53L8CX_DISABLE_AMBIENT_PER_SPAD
-// #define VL53L8CX_DISABLE_NB_SPADS_ENABLED
+#define VL53L8CX_DISABLE_AMBIENT_PER_SPAD
+#define VL53L8CX_DISABLE_NB_SPADS_ENABLED
 // #define VL53L8CX_DISABLE_NB_TARGET_DETECTED
 // #define VL53L8CX_DISABLE_SIGNAL_PER_SPAD
 // #define VL53L8CX_DISABLE_RANGE_SIGMA_MM
 // #define VL53L8CX_DISABLE_DISTANCE_MM
-// #define VL53L8CX_DISABLE_REFLECTANCE_PERCENT
+#define VL53L8CX_DISABLE_REFLECTANCE_PERCENT
 // #define VL53L8CX_DISABLE_TARGET_STATUS
-// #define VL53L8CX_DISABLE_MOTION_INDICATOR
+#define VL53L8CX_DISABLE_MOTION_INDICATOR
 
 /**
  * @param (VL53L8CX_Platform*) p_platform : Pointer of VL53L8CX platform
@@ -117,6 +117,8 @@ uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress,
 
 uint8_t VL53L8CX_WrMultiFW(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size,
                            uint16_t page);
+
+uint8_t VL53L8CX_WrBulk(VL53L8CX_Platform *p_platform, uint16_t RegisterAdress, uint8_t *p_values, uint32_t size);
 
 /**
  * @brief Optional function, only used to perform an hardware reset of the

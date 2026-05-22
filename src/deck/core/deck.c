@@ -68,9 +68,9 @@ void deckInit()
       deck->driver->init(deck);
     }
   }
-  DeckInfo vl53l8cxDeck;
-  vl53l8cxDeck.driver = deckFindDriverByName("bcVL53L8CX11");
-  vl53l8cxDeck.driver->init(&vl53l8cxDeck);
+    DeckInfo vl53l8cxDeck;
+    vl53l8cxDeck.driver = deckFindDriverByName("bcVL53L8CX11");
+    vl53l8cxDeck.driver->init(&vl53l8cxDeck);
 }
 
 bool deckTest()

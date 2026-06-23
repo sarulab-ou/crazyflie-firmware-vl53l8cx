@@ -43,6 +43,9 @@
 
 
 static TaskHandle_t g_task = NULL;
+
+/* Per-sensor average of the 16 zone distances [mm]. Updated in Gget_Ranging() (system.c). */
+float vl53l8cxToFAvg[vl53l8cx_NUM_SENSORS] = {0};
 // static uint8_t  g_initOk[vl53l8cx_NUM_SENSORS] = {0};
 
 /* Build-time switch to bypass ULD init for isolation tests (0 = skip, 1 = call init) */
@@ -124,14 +127,16 @@ void tmp()
             total += Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i];
         }
         // led_debug(1000, (Results.platform.address + 1) * 5, LED_GREEN_L);
-        if (100 < (int)(total / 16) && (int)(total / 16) < 300)
-        {
-            led_debug(200, 5, LED_GREEN_R);
-        }else if(total == 0){
-            led_debug(1000, 1, LED_BLUE_L);
-        }else{
-            led_debug(200, (Results.platform.address + 1)*5, LED_BLUE_L);
-        }
+        // if (100 < (int)(total / 16) && (int)(total / 16) < 300)
+        // {
+        //     led_debug(200, 5, LED_GREEN_R);
+        // }else if(total == 0){
+        //     led_debug(1000, 1, LED_BLUE_L);
+        // }else{
+        //     led_debug(200, (Results.platform.address + 1)*5, LED_BLUE_L);
+        // }
+
+        vTaskDelay(pdMS_TO_TICKS(200));
 
         // if(Results.target_status[0] != 5 && Results.target_status[0] != 9){
         //     led_debug(200, Results.target_status[0], LED_GREEN_L);
@@ -300,7 +305,6 @@ static void printBlobAddresses(void)
 static void vl53l8cxInit(DeckInfo* info)
 {
     ledClearAll();
-    led_debug(2000, 10, LED_BLUE_L);
     (void)info;
     printBlobAddresses();
 }
@@ -312,3 +316,51 @@ static void vl53l8cxInit(DeckInfo* info)
 
 static const DeckDriver bcVL53L8CX11 = {.name = "bcVL53L8CX11", .init = vl53l8cxInit};
 DECK_DRIVER(bcVL53L8CX11);
+
+/* ===== Logs: per-sensor averaged ToF distance [mm] ===== */
+LOG_GROUP_START(vl53l8cx)
+/**
+ * @brief Sensor 0: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s0, &vl53l8cxToFAvg[0])
+/**
+ * @brief Sensor 1: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s1, &vl53l8cxToFAvg[1])
+/**
+ * @brief Sensor 2: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s2, &vl53l8cxToFAvg[2])
+/**
+ * @brief Sensor 3: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s3, &vl53l8cxToFAvg[3])
+/**
+ * @brief Sensor 4: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s4, &vl53l8cxToFAvg[4])
+/**
+ * @brief Sensor 5: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s5, &vl53l8cxToFAvg[5])
+/**
+ * @brief Sensor 6: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s6, &vl53l8cxToFAvg[6])
+/**
+ * @brief Sensor 7: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s7, &vl53l8cxToFAvg[7])
+/**
+ * @brief Sensor 8: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s8, &vl53l8cxToFAvg[8])
+/**
+ * @brief Sensor 9: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s9, &vl53l8cxToFAvg[9])
+/**
+ * @brief Sensor 10: average of the 16 zone distances [mm]
+ */
+LOG_ADD(LOG_FLOAT, s10, &vl53l8cxToFAvg[10])
+LOG_GROUP_STOP(vl53l8cx)

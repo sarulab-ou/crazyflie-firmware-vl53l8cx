@@ -234,6 +234,13 @@ void Gget_Ranging()
         {
             MDev[DevAddr[k]].platform.address = DevAddr[k];
             vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
+            // Average the 16 zone distances for this sensor and store for logging
+            int32_t tofTotal = 0;
+            for (int z = 0; z < 16; z++)
+            {
+                tofTotal += Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * z];
+            }
+            vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
             // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
             // for (i = 0; i < 16; i++)
             // {
@@ -425,30 +432,37 @@ void systemTask(void *arg)
   if (deckTest() == false) {
     pass = false;
     DEBUG_PRINT("deck [FAIL]\n");
+    led_debug(2000, 1, LED_BLUE_L);
   }
   if (soundTest() == false) {
     pass = false;
     DEBUG_PRINT("sound [FAIL]\n");
+    // led_debug(2000, 1, LED_BLUE_L);
   }
   if (memTest() == false) {
     pass = false;
     DEBUG_PRINT("mem [FAIL]\n");
+    // led_debug(2000, 1, LED_BLUE_L);
   }
   if (crtpMemTest() == false) {
     pass = false;
     DEBUG_PRINT("CRTP mem [FAIL]\n");
+    // led_debug(2000, 1, LED_BLUE_L);
   }
   if (watchdogNormalStartTest() == false) {
     pass = false;
     DEBUG_PRINT("watchdogNormalStart [FAIL]\n");
+    // led_debug(2000, 1, LED_BLUE_L);
   }
   if (cfAssertNormalStartTest() == false) {
     pass = false;
     DEBUG_PRINT("cfAssertNormalStart [FAIL]\n");
+    // led_debug(2000, 1, LED_BLUE_L);
   }
   if (peerLocalizationTest() == false) {
     pass = false;
     DEBUG_PRINT("peerLocalization [FAIL]\n");
+    // led_debug(2000, 1, LED_BLUE_L);
   }
   
   //Start the firmware

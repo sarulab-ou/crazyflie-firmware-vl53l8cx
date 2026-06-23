@@ -1,7 +1,7 @@
 1     # version
 512   # buffer size in bytes
 log   # file name
-0     # enable on startup (0/1)
+1     # enable on startup (0/1)
 on:fixedFrequency
 250     # frequency
 1     # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
@@ -22,4 +22,9 @@ ctrltarget.roll
 ctrltarget.pitch
 ctrltarget.yaw
 range.zrange
+vl53l8cx.s0
+vl53l8cx.s1
+stateEstimate.x
+stateEstimate.y
+stateEstimate.z
 on:activeMarkerModeChanged

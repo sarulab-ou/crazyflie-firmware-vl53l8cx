@@ -64,6 +64,7 @@
 #include "eventtrigger.h"
 
 #include "autoconf.h"
+#include "vl53l8cx_api.h"
 
 // Hardware defines
 #ifdef CONFIG_DECK_USD_USE_ALT_PINS_AND_SPI
@@ -80,7 +81,7 @@
 
 #else
 #include "deck_spi.h"
-#define USD_CS_PIN    DECK_GPIO_IO4
+#define USD_CS_PIN    DECK_GPIO_TX1
 
 #define SPI_BEGIN               spiBegin
 #define USD_SPI_BAUDRATE_2MHZ   SPI_BAUDRATE_2MHZ
@@ -453,17 +454,21 @@ static bool initSuccess = false;
 
 static void usdInit(DeckInfo *info)
 {
+  ledClearAll();
+  led_debug(1000,5, LED_BLUE_L);
   if (!isInit) {
+    led_debug(1000,5, LED_GREEN_R);
     memoryRegisterHandler(&memDef);
 
     logFileMutex = xSemaphoreCreateMutex();
     logBufferMutex = xSemaphoreCreateMutex();
     shutdownMutex = xSemaphoreCreateBinary();
 
+    led_debug(1000,5, LED_GREEN_L);
     /* try to mount drives before creating the tasks */
     if (f_mount(&FatFs, "", 1) == FR_OK) {
       DEBUG_PRINT("mount SD-Card [OK].\n");
-
+      led_debug(1000,5, LED_GREEN_R);
       /* create usd-log task */
       xTaskCreate(usdLogTask, USDLOG_TASK_NAME,
                   USDLOG_TASK_STACKSIZE, NULL,
@@ -553,16 +558,18 @@ static void usdGracefulShutdownCallback()
 static void usdLogTask(void* prm)
 {
   TickType_t lastWakeTime = xTaskGetTickCount();
-
+  ledClearAll();
+  led_debug(1000,5, LED_BLUE_L);
   DEBUG_PRINT("wait for sensors\n");
 
   systemWaitStart();
+  ledClearAll();
+  led_debug(1000,5, LED_GREEN_R);
   /* wait until sensor calibration is done
    * (memory of bias calculation buffer is free again) */
   while(!sensorsAreCalibrated()) {
     vTaskDelayUntil(&lastWakeTime, F2T(10));
   }
-
   // loop to break out in case of errors
   while (true) {
     /* open config file */
@@ -715,6 +722,7 @@ static void usdLogTask(void* prm)
 
     xHandleWriteTask = 0;
     enableLogging = usdLogConfig.enableOnStartup; // enable logging if desired
+    // enableLogging = true; // always enable logging, even if not desired, to allow triggering from pc
 
     pmRegisterGracefulShutdownCallback(usdGracefulShutdownCallback);
 

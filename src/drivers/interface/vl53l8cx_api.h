@@ -378,11 +378,12 @@ extern "C"
     };
 
 #ifndef vl53l8cx_NUM_SENSORS
-        #define vl53l8cx_NUM_SENSORS 10
+        #define vl53l8cx_NUM_SENSORS 11
 #endif
         extern VL53L8CX_ResultsData Results;
         // extern VL53L8CX_Configuration Dev;  // Sensor configuration
         extern VL53L8CX_Configuration MDev[vl53l8cx_NUM_SENSORS];  // Sensor configuration for multiple sensors
+        extern float vl53l8cxToFAvg[vl53l8cx_NUM_SENSORS];  // Per-sensor average of the 16 zone distances [mm]
 
     uint8_t vl53l8cx_is_alive(VL53L8CX_Configuration *p_dev, uint8_t *p_is_alive);
 

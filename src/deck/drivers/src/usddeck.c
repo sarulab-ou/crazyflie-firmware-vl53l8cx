@@ -81,7 +81,7 @@
 
 #else
 #include "deck_spi.h"
-#define USD_CS_PIN    DECK_GPIO_TX1
+#define USD_CS_PIN    DECK_GPIO_IO4
 
 #define SPI_BEGIN               spiBegin
 #define USD_SPI_BAUDRATE_2MHZ   SPI_BAUDRATE_2MHZ
@@ -91,7 +91,7 @@
 #define SPI_END_TRANSACTION     spiEndTransaction
 #endif
 
-#define MAX_USD_LOG_VARIABLES_PER_EVENT   (20)
+#define MAX_USD_LOG_VARIABLES_PER_EVENT   (128)
 #define MAX_USD_LOG_EVENTS                (20)
 #define FIXED_FREQUENCY_EVENT_ID          (0xFFFF)
 #define FIXED_FREQUENCY_EVENT_NAME        "fixedFrequency"
@@ -455,20 +455,20 @@ static bool initSuccess = false;
 static void usdInit(DeckInfo *info)
 {
   ledClearAll();
-  led_debug(1000,5, LED_BLUE_L);
+  led_debug(500,10, LED_BLUE_L);
   if (!isInit) {
-    led_debug(1000,5, LED_GREEN_R);
+    led_debug(500,10, LED_GREEN_R);
     memoryRegisterHandler(&memDef);
 
     logFileMutex = xSemaphoreCreateMutex();
     logBufferMutex = xSemaphoreCreateMutex();
     shutdownMutex = xSemaphoreCreateBinary();
 
-    led_debug(1000,5, LED_GREEN_L);
+    led_debug(500,10, LED_GREEN_L);
     /* try to mount drives before creating the tasks */
     if (f_mount(&FatFs, "", 1) == FR_OK) {
       DEBUG_PRINT("mount SD-Card [OK].\n");
-      led_debug(1000,5, LED_GREEN_R);
+      led_debug(500,10, LED_GREEN_R);
       /* create usd-log task */
       xTaskCreate(usdLogTask, USDLOG_TASK_NAME,
                   USDLOG_TASK_STACKSIZE, NULL,

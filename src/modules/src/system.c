@@ -69,6 +69,7 @@
 #include "app.h"
 #include "static_mem.h"
 #include "peer_localization.h"
+#include "usec_time.h"
 #include "cfassert.h"
 #include "i2cdev.h"
 #include "autoconf.h"
@@ -197,12 +198,14 @@ int Ranging_Basic_init(uint16_t DevAddr, VL53L8CX_Configuration* Dev)
         led_debug(3000, 6, LED_BLUE_L);
         return 0;
     }else{
-        led_debug(200, (DevAddr+1) * 5, LED_GREEN_L);
+        led_debug(100, (DevAddr+1) * 10, LED_GREEN_L);
         return 1;
     }
 }
 
 uint8_t DevAddr[11];
+/* Gget_Ranging() の所要時間[us]。tmptask で計測し SD/ログに出す。 */
+uint32_t vl53l8cxRangingUs = 0;
 void Gget_Ranging()
 {
     // uint8_t status, loop, isAlive, isReady;
@@ -234,13 +237,18 @@ void Gget_Ranging()
         {
             MDev[DevAddr[k]].platform.address = DevAddr[k];
             vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
-            // Average the 16 zone distances for this sensor and store for logging
+
             int32_t tofTotal = 0;
             for (int z = 0; z < 16; z++)
             {
-                tofTotal += Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * z];
+                int16_t dist = Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * z];
+                uint8_t st = Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * z];
+                vl53l8cxToFDist[DevAddr[k]][z] = dist;
+                vl53l8cxToFStatus[DevAddr[k]][z] = st;
+                tofTotal += dist;
             }
             vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
+            
             // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
             // for (i = 0; i < 16; i++)
             // {
@@ -296,21 +304,23 @@ void vl53l8cxInitTask(void *param){
 void tmptask(void *param){
   (void)param;
   xSemaphoreTake(vl53l8cxInitDoneSem, portMAX_DELAY);
-  ledClearAll();
   spiBeginTransaction(SPI_BAUDRATE_2MHZ);
   uint8_t status,addr;
   for(addr = 0; addr < vl53l8cx_NUM_SENSORS; addr++){
         status = vl53l8cx_start_ranging(&MDev[addr]);
         if(status){
+            ledClearAll();
             led_debug(2000, addr+3, LED_BLUE_L);
         }
     }
   spiEndTransaction();
     xSemaphoreGive(tmpDoneSem);
     while(1){
-        spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-        Gget_Ranging();
-        spiEndTransaction();
+        // spiBeginTransaction(SPI_BAUDRATE_2MHZ);
+        // uint64_t rangingStart = usecTimestamp();
+        // Gget_Ranging();
+        // vl53l8cxRangingUs = (uint32_t)(usecTimestamp() - rangingStart);
+        // spiEndTransaction();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -329,7 +339,7 @@ void systemTask(void *arg)
   tmpDoneSem = xSemaphoreCreateBinaryStatic(&tmpDoneSemBuffer);
   ASSERT(tmpDoneSem);
 
-  if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 1024, NULL, 2, NULL) != pdPASS) {
+  if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 512, NULL, 2, NULL) != pdPASS) {
     while(1);
   }
   xTaskCreate(tmptask, "tmptask", 1024, NULL, 2, NULL);
@@ -432,7 +442,7 @@ void systemTask(void *arg)
   if (deckTest() == false) {
     pass = false;
     DEBUG_PRINT("deck [FAIL]\n");
-    led_debug(2000, 1, LED_BLUE_L);
+    led_debug(2000, 2, LED_BLUE_L);
   }
   if (soundTest() == false) {
     pass = false;
@@ -669,5 +679,10 @@ LOG_GROUP_START(sys)
  * @brief Test util for log and param. The value is set through the system.testLogParam parameter
  */
 LOG_ADD(LOG_INT8, testLogParam, &testLogParam)
+
+/**
+ * @brief Gget_Ranging() の所要時間 [us] (tmptask内で計測)
+ */
+// LOG_ADD(LOG_UINT32, rangingUs, &vl53l8cxRangingUs)
 
 LOG_GROUP_STOP(sys)

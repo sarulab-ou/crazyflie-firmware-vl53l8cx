@@ -35,6 +35,7 @@
 #include "stabilizer_types.h"
 #include "estimator.h"
 #include "estimator.h"
+#include "crtp_commander_high_level.h"
 
 #include "cf_math.h"
 
@@ -67,6 +68,9 @@ static bool isInit2 = false;
 
 motionBurst_t currentMotion;
 
+/* flowdeckTask の while ループ本体(vTaskDelay後～末尾)の所要時間[us] */
+static uint32_t flowLoopUs = 0;
+
 // Disables pushing the flow measurement in the EKF
 static bool useFlowDisabled = false;
 
@@ -77,7 +81,7 @@ static bool useAdaptiveStd = false;
 // (will not work if useAdaptiveStd is on)
 static float flowStdFixed = 2.0f;
 
-#define NCS_PIN DECK_GPIO_IO1
+#define NCS_PIN DECK_GPIO_IO3
 
 
 static void flowdeckTask(void *param)
@@ -86,10 +90,16 @@ static void flowdeckTask(void *param)
 
   uint64_t lastTime  = usecTimestamp();
   while(1) {
-    vTaskDelay(10);
-    led_debug(200, 5, LED_GREEN_L);
+    vTaskDelay(100);
+    uint64_t loopStart = usecTimestamp();
     pmw3901ReadMotion(NCS_PIN, &currentMotion);
-
+    // squal(路面の特徴量)が0ならフローが取れていないので赤、取れていれば緑
+    // if (currentMotion.squal == 0) {
+    //   led_debug(20, 50, LED_GREEN_R);
+    // } else {
+    //   led_debug(20, 50, LED_GREEN_L);
+    // }
+    // crtpCommanderHighLevelTakeoff(0.2f, 1.0f);
     // Flip motion information to comply with sensor mounting
     // (might need to be changed if mounted differently)
     int16_t accpx = -currentMotion.deltaY;
@@ -157,11 +167,43 @@ static void flowdeckTask(void *param)
       //    and the PMW flow sensor indicates motion detection
       if (!useFlowDisabled && currentMotion.motion == 0xB0) {
         estimatorEnqueueFlow(&flowData);
+
+        // /* Debug: print estimator velocity (body frame) and per-measurement displacement */
+        // state_t estState;
+        // stateEstimator(&estState, 0);
+        // // float vx_b = estState.velocity.x; /* m/s */
+        // float vy_b = estState.velocity.y; /* m/s */
+        // // float dx_m = vx_b * flowData.dt;
+        // float dy_m = vy_b * flowData.dt;
+        // float abs_dy_m = dy_m > 0 ? dy_m : -dy_m;
+        // led_debug(200, (int) abs_dy_m + 10, LED_GREEN_L);
+
       }
     } else {
       outlierCount++;
+      // led_debug(200, 5, LED_BLUE_L);
     }
+    flowLoopUs = (uint32_t)(usecTimestamp() - loopStart);
   }
+}
+
+void flightTask(void *param)
+{
+  /* Simple scripted flight: wait for system start, takeoff, hover 3s, land */
+  systemWaitStart();
+  /* short delay to let other subsystems initialize */
+  ledClearAll();
+  led_debug(1000, 5, LED_BLUE_L);
+  /* Takeoff to 0.5 m over 1.0 s */
+  crtpCommanderHighLevelTakeoff(0.2f, 1.0f);
+
+  /* Hover for 3 seconds */
+  vTaskDelay(pdMS_TO_TICKS(3000));
+
+  /* Land to ground (0.0 m) over 1.0 s */
+  crtpCommanderHighLevelLand(0.0f, 1.0f);
+
+  vTaskDelete(NULL);
 }
 
 static void flowdeck1Init()
@@ -178,7 +220,6 @@ static void flowdeck1Init()
   {
     xTaskCreate(flowdeckTask, FLOW_TASK_NAME, FLOW_TASK_STACKSIZE, NULL,
                 FLOW_TASK_PRI, NULL);
-
     isInit1 = true;
   }
 }
@@ -200,7 +241,7 @@ static const DeckDriver flowdeck1_deck = {
   .vid = 0xBC,
   .pid = 0x0A,
   .name = "bcFlow",
-  .usedGpio = DECK_USING_IO_1,
+  .usedGpio = DECK_USING_IO_3,
   .usedPeriph = DECK_USING_I2C | DECK_USING_SPI,
   .requiredEstimator = StateEstimatorTypeKalman,
 
@@ -224,7 +265,9 @@ static void flowdeck2Init()
   {
     xTaskCreate(flowdeckTask, FLOW_TASK_NAME, FLOW_TASK_STACKSIZE, NULL,
                 FLOW_TASK_PRI, NULL);
-
+    // xTaskCreate(flightTask, "FlightTask", 128, NULL,
+    //             FLOW_TASK_PRI, NULL);
+    // led_debug(2000, 10, LED_GREEN_L);
     isInit2 = true;
   }
 }
@@ -233,7 +276,7 @@ static bool flowdeck2Test()
 {
   ledClearAll();
   if (!isInit2) {
-    led_debug(3000, 5, LED_BLUE_L);
+    led_debug(1000, 10, LED_BLUE_L);
     DEBUG_PRINT("Error while initializing the PMW3901 sensor\n");
     return false;
   }
@@ -248,7 +291,7 @@ static const DeckDriver flowdeck2_deck = {
   .pid = 0x0F,
   .name = "bcFlow2",
 
-  .usedGpio = DECK_USING_IO_1,
+  .usedGpio = DECK_USING_IO_3,
   .usedPeriph = DECK_USING_I2C | DECK_USING_SPI,
   .requiredEstimator = StateEstimatorTypeKalman,
 
@@ -302,6 +345,10 @@ LOG_ADD(LOG_UINT8, squal, &currentMotion.squal)
  * @brief Standard deviation of flow measurement
  */
 LOG_ADD(LOG_FLOAT, std, &stdFlow)
+/**
+ * @brief flowdeckTask の while ループ本体の所要時間 [us]
+ */
+LOG_ADD(LOG_UINT32, loopUs, &flowLoopUs)
 LOG_GROUP_STOP(motion)
 
 /**

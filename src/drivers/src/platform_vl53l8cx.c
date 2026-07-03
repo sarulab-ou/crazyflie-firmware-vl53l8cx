@@ -36,8 +36,8 @@ void init_IO()
 {
     // Spi.format(8, 3);
     // Spi.frequency(2500000);
-    CS0 = DECK_GPIO_IO4;
-    CS1 = DECK_GPIO_IO3;
+    CS0 = DECK_GPIO_TX1;
+    CS1 = DECK_GPIO_IO1;
     CS2 = DECK_GPIO_IO2;
     pinMode(CS0, OUTPUT);
     pinMode(CS1, OUTPUT);

@@ -157,7 +157,7 @@ static void vl53l8cxInit(DeckInfo* info)
     (void)info;
     if (g_task == NULL)
     {
-        BaseType_t rc = xTaskCreate(vl53l8cxTask, "vl53l8cx", 512, NULL, tskIDLE_PRIORITY + 2, &g_task);
+        xTaskCreate(vl53l8cxTask, "vl53l8cx", 512, NULL, tskIDLE_PRIORITY + 2, &g_task);
     }
 }
 

@@ -121,167 +121,14 @@ uint8_t ReStart[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t NumRdy[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 
-void tmp()
-{   
-    uint32_t total = 0;
-    while(1){
-        total = 0;
-        for(int i = 0; i<16;i++){
-            total += Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i];
-        }
-        // led_debug(1000, (Results.platform.address + 1) * 5, LED_GREEN_L);
-        // if (100 < (int)(total / 16) && (int)(total / 16) < 300)
-        // {
-        //     led_debug(200, 5, LED_GREEN_R);
-        // }else if(total == 0){
-        //     led_debug(1000, 1, LED_BLUE_L);
-        // }else{
-        //     led_debug(200, (Results.platform.address + 1)*5, LED_BLUE_L);
-        // }
-
-        vTaskDelay(pdMS_TO_TICKS(200));
-
-        // if(Results.target_status[0] != 5 && Results.target_status[0] != 9){
-        //     led_debug(200, Results.target_status[0], LED_GREEN_L);
-        // }
-        // DEBUG_PRINT("%lu\n", total);
-        // DEBUG_PRINT("Add%d: %lu\n", Results.platform.address, (int32_t)(total/16));
-        // vTaskDelay(pdMS_TO_TICKS(500));
-    }
-    // uint16_t devAddr= 2;
-    // uint8_t loop, isReady;
-    // uint8_t addr, status;
-    // uint8_t i,j,k;
-    // spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-
-    // while(1){
-    //     loop = 0;
-    //     // led_debug(1000, 10, LED_BLUE_L);
-    //     while (loop < 30000)
-    //     {
-    //         status = vl53l8cx_check_data_ready(&MDev[devAddr], &isReady);
-    //         DEBUG_PRINT("Addr%d is %d\n", devAddr, isReady);
-    //         if (isReady)
-    //         {
-    //             vl53l8cx_get_ranging_data(&MDev[devAddr], &Results);
-    //             DEBUG_PRINT("dev %3u\n", devAddr);
-
-    //             for(i = 4; 0<i; i--){
-    //               for(j = 4; 0<j; j--){
-    //                 DEBUG_PRINT("%4d ", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * (i *j)-1]);
-    //               }
-    //               DEBUG_PRINT("\n");
-    //             }
-    //             DEBUG_PRINT("\n");
-    //             // for (i = 0; i < 16; i++)
-    //             // {
-    //             //     DEBUG_PRINT("Zone: %3d, Status: %3u, Dist: %4d mm\n", i,
-    //             //                 Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i],
-    //             //                 Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-    //             // }
-    //             // DEBUG_PRINT("\n");
-    //             loop++;
-    //             VL53L8CX_WaitMs(&(MDev[devAddr].platform), 500);
-    //             break;
-                
-    //         }
-    //         // DEBUG_PRINT("l\n");
-    //         VL53L8CX_WaitMs(&(MDev[devAddr].platform), 100);
-    //     }
-    //     devAddr = (devAddr + 1) % vl53l8cx_NUM_SENSORS;
-    // }
-    // spiEndTransaction();
-}
 
 static void vl53l8cxTask(void* arg)
 {
     (void)arg;
     systemWaitStart();
-    // int tmp_sensor = 0;
-    // for (;;)
-    // {
-    //     // DEBUG_PRINT("w\n");
-    //     vTaskDelay(pdMS_TO_TICKS(100));
-    //     // DEBUG_PRINT("w\n");
-    //     if (callbacked)
-    //     {
-    //         // DEBUG_PRINT("b\n");
-    //         break;
-    //     }
-    // }
-    ledClearAll();
-    // Gget_Ranging();
-    tmp();
-
-    // int n = 0;
-    // uint8_t status;
-    // init_IO();
-    // spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-    // Ranging_Basic(0);
-    // このループは、11個のセンサーがすべて初期化できるまで繰り返す
-    // while (1)
-    // {
-    //     if (Init_Sensor(tmp_sensor, 30))
-    //     {
-    //         // DEBUG_PRINT("Init_Sensor %d end!!!!!!!!!!!!\n\n", n);
-    //         n++;
-    //         if (n >= vl53l8cx_NUM_SENSORS)
-    //         {
-    //             break;
-    //         }
-    //     }
-    //     // vTaskDelay_for_spi_pause(pdMS_TO_TICKS(500));
-    //     VL53L8CX_WaitMs_spi_pause(&MDev[tmp_sensor].platform, 500);
-    // }
-
-    // led_debug(2);
-
-    // uint8_t isReady = 0;
-    // int loop = 0;
-    // while (loop < 10)
-    // {
-    //     status = vl53l8cx_check_data_ready(&MDev[tmp_sensor], &isReady);
-    //     if (isReady)
-    //     {
-    //         vl53l8cx_get_ranging_data(&MDev[tmp_sensor], &Results);
-    //         DEBUG_PRINT("Print data no : %3u\n", MDev[tmp_sensor].streamcount);
-    //         for (int i = 0; i < 16; i++)
-    //         {
-    //             DEBUG_PRINT("Zone : %3d, Status : %3u, Distance : %4d mm\n", i,
-    //                         Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i],
-    //                         Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-    //         }
-    //         DEBUG_PRINT("\n");
-    //         loop++;
-    //     }
-    //     VL53L8CX_WaitMs_spi_pause(&(MDev[tmp_sensor].platform), 5);
-    // }
-    // spiEndTransaction();
     vTaskDelete(NULL);
 }
 
-// static void onEnableUpdated()
-// {
-//     callbacked = 1;
-// }
-
-/* ===== Robust blob address snoop (FLASH vs RAM) ===== */
-static void printBlobAddresses(void)
-{
-    if (g_task == NULL)
-    // if (g_running && g_task == NULL)
-    {
-        BaseType_t rc = xTaskCreate(vl53l8cxTask, "vl53l8cx", 512, NULL, tskIDLE_PRIORITY + 2, &g_task);
-        if (rc == pdPASS)
-        {
-            // DEBUG_PRINT("OK\n");
-        }
-        else
-        {
-            // DEBUG_PRINT("FAIL\n");
-        }
-    }
-}
 
 /* ===== Params / Logs ===== */
 // PARAM_GROUP_START(vl53l8cx)
@@ -307,9 +154,11 @@ static void printBlobAddresses(void)
 /* ===== Deck glue ===== */
 static void vl53l8cxInit(DeckInfo* info)
 {
-    ledClearAll();
     (void)info;
-    printBlobAddresses();
+    if (g_task == NULL)
+    {
+        BaseType_t rc = xTaskCreate(vl53l8cxTask, "vl53l8cx", 512, NULL, tskIDLE_PRIORITY + 2, &g_task);
+    }
 }
 
 // bool vl53l8cxIsRunning(void) { return g_running != 0; }

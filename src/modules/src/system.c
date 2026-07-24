@@ -82,6 +82,9 @@
 #include "../deck/interface/deck_spi.h"
 #include "stm32f4xx_spi.h"
 
+#include "crtp_commander_high_level.h"
+#include "supervisor.h"
+
 /* Private variable */
 static bool selftestPassed;
 static uint8_t dumpAssertInfo = 0;
@@ -98,12 +101,12 @@ xSemaphoreHandle canStartMutex;
 static StaticSemaphore_t canStartMutexBuffer;
 static xSemaphoreHandle vl53l8cxInitDoneSem;
 static StaticSemaphore_t vl53l8cxInitDoneSemBuffer;
-static xSemaphoreHandle tmpDoneSem;
-static StaticSemaphore_t tmpDoneSemBuffer;
+static xSemaphoreHandle vl53l8cxGetTofDoneSem;
+static StaticSemaphore_t vl53l8cxGetTofDoneSemBuffer;
 
 /* Private functions */
 static void systemTask(void *arg);
-void tmptask(void *arg);
+void vl53l8cx_get_tof_task(void *arg);
 
 /* Public functions */
 void systemLaunch(void)
@@ -204,7 +207,7 @@ int Ranging_Basic_init(uint16_t DevAddr, VL53L8CX_Configuration* Dev)
 }
 
 uint8_t DevAddr[11];
-/* Gget_Ranging() の所要時間[us]。tmptask で計測し SD/ログに出す。 */
+/* Gget_Ranging() の所要時間[us]。vl53l8cx_get_tof_task で計測し SD/ログに出す。 */
 uint32_t vl53l8cxRangingUs = 0;
 void Gget_Ranging()
 {
@@ -248,7 +251,7 @@ void Gget_Ranging()
                 tofTotal += dist;
             }
             vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
-            
+
             // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
             // for (i = 0; i < 16; i++)
             // {
@@ -292,16 +295,13 @@ void vl53l8cxInitTask(void *param){
   (void)param;
   init_IO();
   spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-
-  // Ranging_Basic_init(7);
   Gget_Ranging_init();
-
   spiEndTransaction();
   xSemaphoreGive(vl53l8cxInitDoneSem);
   vTaskDelete(NULL);
 }
 
-void tmptask(void *param){
+void vl53l8cx_get_tof_task(void *param){
   (void)param;
   xSemaphoreTake(vl53l8cxInitDoneSem, portMAX_DELAY);
   spiBeginTransaction(SPI_BAUDRATE_2MHZ);
@@ -314,15 +314,46 @@ void tmptask(void *param){
         }
     }
   spiEndTransaction();
-    xSemaphoreGive(tmpDoneSem);
+    xSemaphoreGive(vl53l8cxGetTofDoneSem);
+    // 正確に10Hzで回すため、処理時間を吸収する vTaskDelayUntil を使う
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xPeriod = pdMS_TO_TICKS(200);  // 5Hz
     while(1){
-        // spiBeginTransaction(SPI_BAUDRATE_2MHZ);
-        // uint64_t rangingStart = usecTimestamp();
-        // Gget_Ranging();
-        // vl53l8cxRangingUs = (uint32_t)(usecTimestamp() - rangingStart);
-        // spiEndTransaction();
-        vTaskDelay(pdMS_TO_TICKS(100));
+        spiBeginTransaction(SPI_BAUDRATE_2MHZ);
+        uint64_t rangingStart = usecTimestamp();
+        Gget_Ranging();
+        vl53l8cxRangingUs = (uint32_t)(usecTimestamp() - rangingStart);
+        spiEndTransaction();
+        vTaskDelayUntil(&xLastWakeTime, xPeriod);  // 前回起床から100ms周期
     }
+}
+
+void flightTask(void *param)
+{
+  /* Simple scripted flight: wait for system start, takeoff, hover 3s, land */
+  systemWaitStart();
+  /* short delay to let other subsystems initialize */
+  ledClearAll();
+  led_debug(1000, 5, LED_BLUE_L);
+
+  /* Arm the system before flight. Brushless platforms (e.g. CF2.1 Brushless)
+   * require explicit arming before the motors will spin; brushed platforms
+   * also accept the request. Wait until arming succeeds. */
+  while (!supervisorIsArmed()) {
+    supervisorRequestArming(true);
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
+  // /* Takeoff to 0.5 m over 1.0 s */
+  // crtpCommanderHighLevelTakeoff(0.5f, 1.0f);
+
+  // /* Hover for 3 seconds */
+  // vTaskDelay(pdMS_TO_TICKS(6000));
+
+  // /* Land to ground (0.0 m) over 1.0 s */
+  // crtpCommanderHighLevelLand(0.0f, 1.0f);
+
+  vTaskDelete(NULL);
 }
 
 
@@ -336,16 +367,14 @@ void systemTask(void *arg)
 
   vl53l8cxInitDoneSem = xSemaphoreCreateBinaryStatic(&vl53l8cxInitDoneSemBuffer);
   ASSERT(vl53l8cxInitDoneSem);
-  tmpDoneSem = xSemaphoreCreateBinaryStatic(&tmpDoneSemBuffer);
-  ASSERT(tmpDoneSem);
+  vl53l8cxGetTofDoneSem = xSemaphoreCreateBinaryStatic(&vl53l8cxGetTofDoneSemBuffer);
+  ASSERT(vl53l8cxGetTofDoneSem);
 
   if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 512, NULL, 2, NULL) != pdPASS) {
     while(1);
   }
-  xTaskCreate(tmptask, "tmptask", 1024, NULL, 2, NULL);
-  // Wait until VL53L8CX initialization task has completed and deleted itself
-       // TODO: これの位置を変えて実験してみる！！！！！！！！！！！！！！！！！！
-  xSemaphoreTake(tmpDoneSem, portMAX_DELAY);
+  xTaskCreate(vl53l8cx_get_tof_task, "vl53l8cx_get_tof_task", 1024, NULL, 2, NULL);
+  xSemaphoreTake(vl53l8cxGetTofDoneSem, portMAX_DELAY);
 
   ledSet(CHG_LED, 1);
 
@@ -484,6 +513,8 @@ void systemTask(void *arg)
     soundSetEffect(SND_STARTUP);
     ledseqRun(&seq_alive);
     ledseqRun(&seq_testPassed);
+
+    xTaskCreate(flightTask, "FlightTask", 256, NULL, FLOW_TASK_PRI, NULL);
   }
   else
   {
@@ -681,7 +712,7 @@ LOG_GROUP_START(sys)
 LOG_ADD(LOG_INT8, testLogParam, &testLogParam)
 
 /**
- * @brief Gget_Ranging() の所要時間 [us] (tmptask内で計測)
+ * @brief Gget_Ranging() の所要時間 [us] (vl53l8cx_get_tof_task内で計測)
  */
 // LOG_ADD(LOG_UINT32, rangingUs, &vl53l8cxRangingUs)
 

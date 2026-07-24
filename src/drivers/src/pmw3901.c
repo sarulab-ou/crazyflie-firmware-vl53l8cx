@@ -172,51 +172,49 @@ static void InitRegisters(const deckPin_t csPin)
 void bit_debug(uint8_t value){
   ledClearAll();
   if(value & 0x80){
-    led_debug(1000, 1, LED_GREEN_L);
+    led_debug(500, 2, LED_GREEN_L);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
   if(value & 0x40){
-    led_debug(1000, 2, LED_GREEN_L);
+    led_debug(500, 4, LED_GREEN_L);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
   if(value & 0x20){
-    led_debug(1000, 3, LED_GREEN_L);
+    led_debug(500, 6, LED_GREEN_L);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
   if(value & 0x10){
-    led_debug(1000, 4, LED_GREEN_L);
+    led_debug(500, 8, LED_GREEN_L);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
   if(value & 0x08){
-    led_debug(1000, 1, LED_GREEN_R);
+    led_debug(500, 2, LED_GREEN_R);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
   if(value & 0x04){
-    led_debug(1000, 2, LED_GREEN_R);
+    led_debug(500, 4, LED_GREEN_R);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
   if(value & 0x02){
-    led_debug(1000, 3, LED_GREEN_R);
+    led_debug(500, 6, LED_GREEN_R);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
   if(value & 0x01){
-    led_debug(1000, 4, LED_GREEN_R);
+    led_debug(500, 8, LED_GREEN_R);
   }else{
-    vTaskDelay(M2T(1000));
+    vTaskDelay(M2T(500));
   }
 }
 
 bool pmw3901Init(const deckPin_t csPin)
 {
-  ledClearAll();
-  led_debug(1000, 5, LED_BLUE_L);
   if (isInit) {
     return true;
   }
@@ -240,8 +238,7 @@ bool pmw3901Init(const deckPin_t csPin)
 
   // DEBUG_PRINT("Motion chip id: 0x%x:0x%x\n", chipId, invChipId);
   bit_debug(chipId);
-  led_debug(1000, 5, LED_BLUE_L);
-  bit_debug(invChipId);
+  // bit_debug(invChipId);
   if (chipId == 0x49 && invChipId == 0xB6)
   {
     // Power on reset
@@ -260,9 +257,8 @@ bool pmw3901Init(const deckPin_t csPin)
 
     isInit = true;
   }else{
-    led_debug(2000, 5, LED_GREEN_L);
-    }
-
+    led_debug(2000, 20, LED_BLUE_L);
+  }
   return isInit;
 }
 

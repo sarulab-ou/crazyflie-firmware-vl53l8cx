@@ -187,24 +187,6 @@ static void flowdeckTask(void *param)
   }
 }
 
-void flightTask(void *param)
-{
-  /* Simple scripted flight: wait for system start, takeoff, hover 3s, land */
-  systemWaitStart();
-  /* short delay to let other subsystems initialize */
-  ledClearAll();
-  led_debug(1000, 5, LED_BLUE_L);
-  /* Takeoff to 0.5 m over 1.0 s */
-  crtpCommanderHighLevelTakeoff(0.2f, 1.0f);
-
-  /* Hover for 3 seconds */
-  vTaskDelay(pdMS_TO_TICKS(3000));
-
-  /* Land to ground (0.0 m) over 1.0 s */
-  crtpCommanderHighLevelLand(0.0f, 1.0f);
-
-  vTaskDelete(NULL);
-}
 
 static void flowdeck1Init()
 {

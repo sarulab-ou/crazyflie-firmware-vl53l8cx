@@ -514,7 +514,7 @@ void systemTask(void *arg)
     ledseqRun(&seq_alive);
     ledseqRun(&seq_testPassed);
 
-    xTaskCreate(flightTask, "FlightTask", 256, NULL, FLOW_TASK_PRI, NULL);
+    // xTaskCreate(flightTask, "FlightTask", 256, NULL, FLOW_TASK_PRI, NULL);
   }
   else
   {

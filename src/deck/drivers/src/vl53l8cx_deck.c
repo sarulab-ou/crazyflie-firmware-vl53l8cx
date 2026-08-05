@@ -13,6 +13,7 @@
 #include "static_mem.h"
 #include "system.h"
 #include "task.h"
+#include "tof_odometry.h"
 #include "vl53l8cx_api.h"
 /* Deck SPI and GPIO APIs */
 #include "deck_constants.h"
@@ -37,6 +38,9 @@ float vl53l8cxToFAvg[vl53l8cx_NUM_SENSORS] = {0};
 /* Per-sensor raw distance [mm] and target_status of each of the 16 zones. Updated in Gget_Ranging() (system.c). */
 int16_t vl53l8cxToFDist[vl53l8cx_NUM_SENSORS][16] = {{0}};
 uint8_t vl53l8cxToFStatus[vl53l8cx_NUM_SENSORS][16] = {{0}};
+/* Incremented once per completed ranging sweep in Gget_Ranging() (system.c).
+ * The odometry task uses it to process each frame exactly once. */
+volatile uint32_t vl53l8cxFrameSeq = 0;
 
 /* ONE shared configuration + ONE shared results */
 // NO_DMA_CCM_SAFE_ZERO_INIT static VL53L8CX_Configuration g_dev;
@@ -52,12 +56,23 @@ static void vl53l8cxTask(void* arg)
 {
     (void)arg;
     systemWaitStart();
+
+    /* Convert the ToF point clouds into translational and rotational motion
+     * estimates. Runs once per ranging sweep (Gget_Ranging(), 5 Hz) rather than
+     * on its own timer, so no frame is processed twice or skipped. */
+    tofOdometryInit();
+    uint32_t lastSeq = vl53l8cxFrameSeq;
+
     while (1)
     {
-        // implement the process of converting ToF data into translational 
-        // and rotational motion estimates for use in the EKF.
-        vTaskDelay(pdMS_TO_TICKS(200)); // 5Hz
-    }   
+        uint32_t seq = vl53l8cxFrameSeq;
+        if (seq != lastSeq)
+        {
+            lastSeq = seq;
+            tofOdometryUpdate();
+        }
+        vTaskDelay(pdMS_TO_TICKS(20)); // poll at 50Hz, ranging arrives at 5Hz
+    }
     vTaskDelete(NULL);
 }
 
@@ -65,7 +80,8 @@ static void vl53l8cxTask(void* arg)
 static void vl53l8cxInit(DeckInfo* info)
 {
     (void)info;
-    xTaskCreate(vl53l8cxTask, "vl53l8cx", 512, NULL, tskIDLE_PRIORITY + 2, &g_task);
+    /* 768 words: PCA/RANSAC/Kabsch の再帰しない呼び出し鎖で ~700B 使う */
+    xTaskCreate(vl53l8cxTask, "vl53l8cx", 768, NULL, tskIDLE_PRIORITY + 2, &g_task);
 }
 
 static const DeckDriver bcVL53L8CX11 = {.name = "bcVL53L8CX11", .init = vl53l8cxInit};
@@ -87,75 +103,110 @@ LOG_ADD(LOG_FLOAT, s10, &vl53l8cxToFAvg[10])
 LOG_GROUP_STOP(vl53l8cx)
 
 /* ===== Logs: per-zone raw distance [mm] and target_status for sensors 0 and 1 ===== */
-// LOG_GROUP_START(vl53l8cx_s0)
-// LOG_ADD(LOG_INT16, d0,  &vl53l8cxToFDist[0][0])
-// LOG_ADD(LOG_INT16, d1,  &vl53l8cxToFDist[0][1])
-// LOG_ADD(LOG_INT16, d2,  &vl53l8cxToFDist[0][2])
-// LOG_ADD(LOG_INT16, d3,  &vl53l8cxToFDist[0][3])
-// LOG_ADD(LOG_INT16, d4,  &vl53l8cxToFDist[0][4])
-// LOG_ADD(LOG_INT16, d5,  &vl53l8cxToFDist[0][5])
-// LOG_ADD(LOG_INT16, d6,  &vl53l8cxToFDist[0][6])
-// LOG_ADD(LOG_INT16, d7,  &vl53l8cxToFDist[0][7])
-// LOG_ADD(LOG_INT16, d8,  &vl53l8cxToFDist[0][8])
-// LOG_ADD(LOG_INT16, d9,  &vl53l8cxToFDist[0][9])
-// LOG_ADD(LOG_INT16, d10, &vl53l8cxToFDist[0][10])
-// LOG_ADD(LOG_INT16, d11, &vl53l8cxToFDist[0][11])
-// LOG_ADD(LOG_INT16, d12, &vl53l8cxToFDist[0][12])
-// LOG_ADD(LOG_INT16, d13, &vl53l8cxToFDist[0][13])
-// LOG_ADD(LOG_INT16, d14, &vl53l8cxToFDist[0][14])
-// LOG_ADD(LOG_INT16, d15, &vl53l8cxToFDist[0][15])
-// LOG_ADD(LOG_UINT8, st0,  &vl53l8cxToFStatus[0][0])
-// LOG_ADD(LOG_UINT8, st1,  &vl53l8cxToFStatus[0][1])
-// LOG_ADD(LOG_UINT8, st2,  &vl53l8cxToFStatus[0][2])
-// LOG_ADD(LOG_UINT8, st3,  &vl53l8cxToFStatus[0][3])
-// LOG_ADD(LOG_UINT8, st4,  &vl53l8cxToFStatus[0][4])
-// LOG_ADD(LOG_UINT8, st5,  &vl53l8cxToFStatus[0][5])
-// LOG_ADD(LOG_UINT8, st6,  &vl53l8cxToFStatus[0][6])
-// LOG_ADD(LOG_UINT8, st7,  &vl53l8cxToFStatus[0][7])
-// LOG_ADD(LOG_UINT8, st8,  &vl53l8cxToFStatus[0][8])
-// LOG_ADD(LOG_UINT8, st9,  &vl53l8cxToFStatus[0][9])
-// LOG_ADD(LOG_UINT8, st10, &vl53l8cxToFStatus[0][10])
-// LOG_ADD(LOG_UINT8, st11, &vl53l8cxToFStatus[0][11])
-// LOG_ADD(LOG_UINT8, st12, &vl53l8cxToFStatus[0][12])
-// LOG_ADD(LOG_UINT8, st13, &vl53l8cxToFStatus[0][13])
-// LOG_ADD(LOG_UINT8, st14, &vl53l8cxToFStatus[0][14])
-// LOG_ADD(LOG_UINT8, st15, &vl53l8cxToFStatus[0][15])
-// LOG_GROUP_STOP(vl53l8cx_s0)
+LOG_GROUP_START(vl53l8cx_s0)
+LOG_ADD(LOG_INT16, d0,  &vl53l8cxToFDist[0][0])
+LOG_ADD(LOG_INT16, d1,  &vl53l8cxToFDist[0][1])
+LOG_ADD(LOG_INT16, d2,  &vl53l8cxToFDist[0][2])
+LOG_ADD(LOG_INT16, d3,  &vl53l8cxToFDist[0][3])
+LOG_ADD(LOG_INT16, d4,  &vl53l8cxToFDist[0][4])
+LOG_ADD(LOG_INT16, d5,  &vl53l8cxToFDist[0][5])
+LOG_ADD(LOG_INT16, d6,  &vl53l8cxToFDist[0][6])
+LOG_ADD(LOG_INT16, d7,  &vl53l8cxToFDist[0][7])
+LOG_ADD(LOG_INT16, d8,  &vl53l8cxToFDist[0][8])
+LOG_ADD(LOG_INT16, d9,  &vl53l8cxToFDist[0][9])
+LOG_ADD(LOG_INT16, d10, &vl53l8cxToFDist[0][10])
+LOG_ADD(LOG_INT16, d11, &vl53l8cxToFDist[0][11])
+LOG_ADD(LOG_INT16, d12, &vl53l8cxToFDist[0][12])
+LOG_ADD(LOG_INT16, d13, &vl53l8cxToFDist[0][13])
+LOG_ADD(LOG_INT16, d14, &vl53l8cxToFDist[0][14])
+LOG_ADD(LOG_INT16, d15, &vl53l8cxToFDist[0][15])
+LOG_ADD(LOG_UINT8, st0,  &vl53l8cxToFStatus[0][0])
+LOG_ADD(LOG_UINT8, st1,  &vl53l8cxToFStatus[0][1])
+LOG_ADD(LOG_UINT8, st2,  &vl53l8cxToFStatus[0][2])
+LOG_ADD(LOG_UINT8, st3,  &vl53l8cxToFStatus[0][3])
+LOG_ADD(LOG_UINT8, st4,  &vl53l8cxToFStatus[0][4])
+LOG_ADD(LOG_UINT8, st5,  &vl53l8cxToFStatus[0][5])
+LOG_ADD(LOG_UINT8, st6,  &vl53l8cxToFStatus[0][6])
+LOG_ADD(LOG_UINT8, st7,  &vl53l8cxToFStatus[0][7])
+LOG_ADD(LOG_UINT8, st8,  &vl53l8cxToFStatus[0][8])
+LOG_ADD(LOG_UINT8, st9,  &vl53l8cxToFStatus[0][9])
+LOG_ADD(LOG_UINT8, st10, &vl53l8cxToFStatus[0][10])
+LOG_ADD(LOG_UINT8, st11, &vl53l8cxToFStatus[0][11])
+LOG_ADD(LOG_UINT8, st12, &vl53l8cxToFStatus[0][12])
+LOG_ADD(LOG_UINT8, st13, &vl53l8cxToFStatus[0][13])
+LOG_ADD(LOG_UINT8, st14, &vl53l8cxToFStatus[0][14])
+LOG_ADD(LOG_UINT8, st15, &vl53l8cxToFStatus[0][15])
+LOG_GROUP_STOP(vl53l8cx_s0)
 
-// LOG_GROUP_START(vl53l8cx_s1)
-// LOG_ADD(LOG_INT16, d0,  &vl53l8cxToFDist[1][0])
-// LOG_ADD(LOG_INT16, d1,  &vl53l8cxToFDist[1][1])
-// LOG_ADD(LOG_INT16, d2,  &vl53l8cxToFDist[1][2])
-// LOG_ADD(LOG_INT16, d3,  &vl53l8cxToFDist[1][3])
-// LOG_ADD(LOG_INT16, d4,  &vl53l8cxToFDist[1][4])
-// LOG_ADD(LOG_INT16, d5,  &vl53l8cxToFDist[1][5])
-// LOG_ADD(LOG_INT16, d6,  &vl53l8cxToFDist[1][6])
-// LOG_ADD(LOG_INT16, d7,  &vl53l8cxToFDist[1][7])
-// LOG_ADD(LOG_INT16, d8,  &vl53l8cxToFDist[1][8])
-// LOG_ADD(LOG_INT16, d9,  &vl53l8cxToFDist[1][9])
-// LOG_ADD(LOG_INT16, d10, &vl53l8cxToFDist[1][10])
-// LOG_ADD(LOG_INT16, d11, &vl53l8cxToFDist[1][11])
-// LOG_ADD(LOG_INT16, d12, &vl53l8cxToFDist[1][12])
-// LOG_ADD(LOG_INT16, d13, &vl53l8cxToFDist[1][13])
-// LOG_ADD(LOG_INT16, d14, &vl53l8cxToFDist[1][14])
-// LOG_ADD(LOG_INT16, d15, &vl53l8cxToFDist[1][15])
-// LOG_ADD(LOG_UINT8, st0,  &vl53l8cxToFStatus[1][0])
-// LOG_ADD(LOG_UINT8, st1,  &vl53l8cxToFStatus[1][1])
-// LOG_ADD(LOG_UINT8, st2,  &vl53l8cxToFStatus[1][2])
-// LOG_ADD(LOG_UINT8, st3,  &vl53l8cxToFStatus[1][3])
-// LOG_ADD(LOG_UINT8, st4,  &vl53l8cxToFStatus[1][4])
-// LOG_ADD(LOG_UINT8, st5,  &vl53l8cxToFStatus[1][5])
-// LOG_ADD(LOG_UINT8, st6,  &vl53l8cxToFStatus[1][6])
-// LOG_ADD(LOG_UINT8, st7,  &vl53l8cxToFStatus[1][7])
-// LOG_ADD(LOG_UINT8, st8,  &vl53l8cxToFStatus[1][8])
-// LOG_ADD(LOG_UINT8, st9,  &vl53l8cxToFStatus[1][9])
-// LOG_ADD(LOG_UINT8, st10, &vl53l8cxToFStatus[1][10])
-// LOG_ADD(LOG_UINT8, st11, &vl53l8cxToFStatus[1][11])
-// LOG_ADD(LOG_UINT8, st12, &vl53l8cxToFStatus[1][12])
-// LOG_ADD(LOG_UINT8, st13, &vl53l8cxToFStatus[1][13])
-// LOG_ADD(LOG_UINT8, st14, &vl53l8cxToFStatus[1][14])
-// LOG_ADD(LOG_UINT8, st15, &vl53l8cxToFStatus[1][15])
-// LOG_GROUP_STOP(vl53l8cx_s1)
+LOG_GROUP_START(vl53l8cx_s1)
+LOG_ADD(LOG_INT16, d0,  &vl53l8cxToFDist[1][0])
+LOG_ADD(LOG_INT16, d1,  &vl53l8cxToFDist[1][1])
+LOG_ADD(LOG_INT16, d2,  &vl53l8cxToFDist[1][2])
+LOG_ADD(LOG_INT16, d3,  &vl53l8cxToFDist[1][3])
+LOG_ADD(LOG_INT16, d4,  &vl53l8cxToFDist[1][4])
+LOG_ADD(LOG_INT16, d5,  &vl53l8cxToFDist[1][5])
+LOG_ADD(LOG_INT16, d6,  &vl53l8cxToFDist[1][6])
+LOG_ADD(LOG_INT16, d7,  &vl53l8cxToFDist[1][7])
+LOG_ADD(LOG_INT16, d8,  &vl53l8cxToFDist[1][8])
+LOG_ADD(LOG_INT16, d9,  &vl53l8cxToFDist[1][9])
+LOG_ADD(LOG_INT16, d10, &vl53l8cxToFDist[1][10])
+LOG_ADD(LOG_INT16, d11, &vl53l8cxToFDist[1][11])
+LOG_ADD(LOG_INT16, d12, &vl53l8cxToFDist[1][12])
+LOG_ADD(LOG_INT16, d13, &vl53l8cxToFDist[1][13])
+LOG_ADD(LOG_INT16, d14, &vl53l8cxToFDist[1][14])
+LOG_ADD(LOG_INT16, d15, &vl53l8cxToFDist[1][15])
+LOG_ADD(LOG_UINT8, st0,  &vl53l8cxToFStatus[1][0])
+LOG_ADD(LOG_UINT8, st1,  &vl53l8cxToFStatus[1][1])
+LOG_ADD(LOG_UINT8, st2,  &vl53l8cxToFStatus[1][2])
+LOG_ADD(LOG_UINT8, st3,  &vl53l8cxToFStatus[1][3])
+LOG_ADD(LOG_UINT8, st4,  &vl53l8cxToFStatus[1][4])
+LOG_ADD(LOG_UINT8, st5,  &vl53l8cxToFStatus[1][5])
+LOG_ADD(LOG_UINT8, st6,  &vl53l8cxToFStatus[1][6])
+LOG_ADD(LOG_UINT8, st7,  &vl53l8cxToFStatus[1][7])
+LOG_ADD(LOG_UINT8, st8,  &vl53l8cxToFStatus[1][8])
+LOG_ADD(LOG_UINT8, st9,  &vl53l8cxToFStatus[1][9])
+LOG_ADD(LOG_UINT8, st10, &vl53l8cxToFStatus[1][10])
+LOG_ADD(LOG_UINT8, st11, &vl53l8cxToFStatus[1][11])
+LOG_ADD(LOG_UINT8, st12, &vl53l8cxToFStatus[1][12])
+LOG_ADD(LOG_UINT8, st13, &vl53l8cxToFStatus[1][13])
+LOG_ADD(LOG_UINT8, st14, &vl53l8cxToFStatus[1][14])
+LOG_ADD(LOG_UINT8, st15, &vl53l8cxToFStatus[1][15])
+LOG_GROUP_STOP(vl53l8cx_s1)
+
+LOG_GROUP_START(vl53l8cx_s2)
+LOG_ADD(LOG_INT16, d0,  &vl53l8cxToFDist[2][0])
+LOG_ADD(LOG_INT16, d1,  &vl53l8cxToFDist[2][1])
+LOG_ADD(LOG_INT16, d2,  &vl53l8cxToFDist[2][2])
+LOG_ADD(LOG_INT16, d3,  &vl53l8cxToFDist[2][3])
+LOG_ADD(LOG_INT16, d4,  &vl53l8cxToFDist[2][4])
+LOG_ADD(LOG_INT16, d5,  &vl53l8cxToFDist[2][5])
+LOG_ADD(LOG_INT16, d6,  &vl53l8cxToFDist[2][6])
+LOG_ADD(LOG_INT16, d7,  &vl53l8cxToFDist[2][7])
+LOG_ADD(LOG_INT16, d8,  &vl53l8cxToFDist[2][8])
+LOG_ADD(LOG_INT16, d9,  &vl53l8cxToFDist[2][9])
+LOG_ADD(LOG_INT16, d10, &vl53l8cxToFDist[2][10])
+LOG_ADD(LOG_INT16, d11, &vl53l8cxToFDist[2][11])
+LOG_ADD(LOG_INT16, d12, &vl53l8cxToFDist[2][12])
+LOG_ADD(LOG_INT16, d13, &vl53l8cxToFDist[2][13])
+LOG_ADD(LOG_INT16, d14, &vl53l8cxToFDist[2][14])
+LOG_ADD(LOG_INT16, d15, &vl53l8cxToFDist[2][15])
+LOG_ADD(LOG_UINT8, st0,  &vl53l8cxToFStatus[2][0])
+LOG_ADD(LOG_UINT8, st1,  &vl53l8cxToFStatus[2][1])
+LOG_ADD(LOG_UINT8, st2,  &vl53l8cxToFStatus[2][2])
+LOG_ADD(LOG_UINT8, st3,  &vl53l8cxToFStatus[2][3])
+LOG_ADD(LOG_UINT8, st4,  &vl53l8cxToFStatus[2][4])
+LOG_ADD(LOG_UINT8, st5,  &vl53l8cxToFStatus[2][5])
+LOG_ADD(LOG_UINT8, st6,  &vl53l8cxToFStatus[2][6])
+LOG_ADD(LOG_UINT8, st7,  &vl53l8cxToFStatus[2][7])
+LOG_ADD(LOG_UINT8, st8,  &vl53l8cxToFStatus[2][8])
+LOG_ADD(LOG_UINT8, st9,  &vl53l8cxToFStatus[2][9])
+LOG_ADD(LOG_UINT8, st10, &vl53l8cxToFStatus[2][10])
+LOG_ADD(LOG_UINT8, st11, &vl53l8cxToFStatus[2][11])
+LOG_ADD(LOG_UINT8, st12, &vl53l8cxToFStatus[2][12])
+LOG_ADD(LOG_UINT8, st13, &vl53l8cxToFStatus[2][13])
+LOG_ADD(LOG_UINT8, st14, &vl53l8cxToFStatus[2][14])
+LOG_ADD(LOG_UINT8, st15, &vl53l8cxToFStatus[2][15])
+LOG_GROUP_STOP(vl53l8cx_set_i2c_address)
 
 // LOG_GROUP_START(vl53l8cx_s8)
 // LOG_ADD(LOG_INT16, d0,  &vl53l8cxToFDist[8][0])

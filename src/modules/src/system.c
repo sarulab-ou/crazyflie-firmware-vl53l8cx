@@ -274,6 +274,9 @@ void Gget_Ranging()
             // }
         }
     }
+
+    /* 1スイープ完了。ToF オドメトリタスクがこのカウンタで新フレームを検出する。 */
+    vl53l8cxFrameSeq++;
 }
 
 void Gget_Ranging_init()

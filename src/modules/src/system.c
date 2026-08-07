@@ -251,6 +251,9 @@ void Gget_Ranging()
                 tofTotal += dist;
             }
             vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
+            /* このセンサーだけが新しい測距値を得た。ToF オドメトリは
+             * このカウンタを見て、更新のあったセンサーだけを使う。 */
+            vl53l8cxSensorSeq[DevAddr[k]]++;
 
             // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
             // for (i = 0; i < 16; i++)

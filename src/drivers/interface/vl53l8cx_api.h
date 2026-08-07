@@ -387,6 +387,7 @@ extern "C"
         extern int16_t vl53l8cxToFDist[vl53l8cx_NUM_SENSORS][16];   // Per-sensor raw distance of each of the 16 zones [mm]
         extern uint8_t vl53l8cxToFStatus[vl53l8cx_NUM_SENSORS][16]; // Per-sensor target_status of each of the 16 zones
         extern volatile uint32_t vl53l8cxFrameSeq;                  // Incremented once per completed ranging sweep
+        extern volatile uint32_t vl53l8cxSensorSeq[vl53l8cx_NUM_SENSORS]; // Per-sensor: incremented when that sensor delivers new data
 
     uint8_t vl53l8cx_is_alive(VL53L8CX_Configuration *p_dev, uint8_t *p_is_alive);
 

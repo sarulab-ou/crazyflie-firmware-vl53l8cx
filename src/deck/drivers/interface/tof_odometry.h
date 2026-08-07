@@ -15,8 +15,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* オドメトリに使うセンサー数 (tof_odometry.c の TOFODO_SENSORS と対応)。 */
-#define TOFODO_NUM_SENSORS 11
+/* 基板に搭載されている VL53L8CX の数 (取り付けテーブルの行数)。 */
+#define VL53L8CX_MAX_SENSORS 11
+
+/* オドメトリに使うセンサー数 (tof_odometry.c の TOFODO_SENSORS と要一致)。 */
+#define TOFODO_NUM_SENSORS 6
 
 /** 内部状態 (累積姿勢・位置・前フレームの平面) を初期化する。 */
 void tofOdometryInit(void);

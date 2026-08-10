@@ -1,0 +1,23 @@
+1     # version
+2048   # buffer size in bytes
+log   # file name
+0     # enable on startup (0/1)
+on:fixedFrequency
+50     # frequency
+1     # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
+vl53l8cx.s0
+vl53l8cx.s1
+vl53l8cx.s2
+vl53l8cx.s3
+vl53l8cx.s4
+vl53l8cx.s5
+vl53l8cx.s6
+vl53l8cx.s7
+vl53l8cx.s8
+on:pose
+stateEstimate.x
+stateEstimate.y
+stateEstimate.z
+stabilizer.roll
+stabilizer.pitch
+stabilizer.yaw

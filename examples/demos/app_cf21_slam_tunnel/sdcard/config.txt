@@ -1,0 +1,18 @@
+1     # version
+4096   # buffer size in bytes
+log   # file name
+0     # enable on startup (0/1)
+on:fixedFrequency
+50     # frequency
+1     # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
+stateEstimate.x
+stateEstimate.y
+stateEstimate.z
+stabilizer.roll
+stabilizer.pitch
+stabilizer.yaw
+range.front
+range.back
+range.left
+range.right
+range.up

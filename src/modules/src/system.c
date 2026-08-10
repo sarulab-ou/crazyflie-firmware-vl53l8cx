@@ -106,7 +106,7 @@ static StaticSemaphore_t vl53l8cxGetTofDoneSemBuffer;
 
 /* Private functions */
 static void systemTask(void *arg);
-void vl53l8cx_get_tof_task(void *arg);
+void vl53l8cxGetTofTask(void *arg);
 
 /* Public functions */
 void systemLaunch(void)
@@ -201,13 +201,14 @@ int Ranging_Basic_init(uint16_t DevAddr, VL53L8CX_Configuration* Dev)
         led_debug(3000, 6, LED_BLUE_L);
         return 0;
     }else{
+      // when success, blink the LED to indicate which sensor is initialized
         led_debug(100, (DevAddr+1) * 10, LED_GREEN_L);
         return 1;
     }
 }
 
 uint8_t DevAddr[11];
-/* Gget_Ranging() の所要時間[us]。vl53l8cx_get_tof_task で計測し SD/ログに出す。 */
+/* Gget_Ranging() の所要時間[us]。vl53l8cxGetTofTask で計測し SD/ログに出す。 */
 uint32_t vl53l8cxRangingUs = 0;
 void Gget_Ranging()
 {
@@ -253,25 +254,6 @@ void Gget_Ranging()
             vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
 
             // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
-            // for (i = 0; i < 16; i++)
-            // {
-            //     if (Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * i] == 5)
-            //     {
-            //         if(100 < Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i] && Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i] < 300){
-            //         led_debug(200, 5 * (DevAddr[k]+1), LED_GREEN_L);
-            //         // DEBUG_PRINT("%d ", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-            //         }else{
-            //         led_debug(200, 5 * (DevAddr[k]+1), LED_GREEN_R);
-            //         // DEBUG_PRINT("%d ", Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * i]);
-            //         }
-            //     }
-            //     else
-            //     {
-            //         led_debug(200, 5 * (DevAddr[k]+1), LED_BLUE_L);
-            //         // DEBUG_PRINT("er");
-            //     }
-            //     // DEBUG_PRINT("\n");
-            // }
         }
     }
 }
@@ -280,7 +262,6 @@ void Gget_Ranging_init()
 {
   int i = 0;
   uint8_t isInited = 0;
-  // この部分は謎
   while(i < vl53l8cx_NUM_SENSORS){
     isInited = Ranging_Basic_init(i, &MDev[i]);
     if(isInited == 1){
@@ -301,7 +282,7 @@ void vl53l8cxInitTask(void *param){
   vTaskDelete(NULL);
 }
 
-void vl53l8cx_get_tof_task(void *param){
+void vl53l8cxGetTofTask(void *param){
   (void)param;
   xSemaphoreTake(vl53l8cxInitDoneSem, portMAX_DELAY);
   spiBeginTransaction(SPI_BAUDRATE_2MHZ);
@@ -324,7 +305,7 @@ void vl53l8cx_get_tof_task(void *param){
         Gget_Ranging();
         vl53l8cxRangingUs = (uint32_t)(usecTimestamp() - rangingStart);
         spiEndTransaction();
-        vTaskDelayUntil(&xLastWakeTime, xPeriod);  // 前回起床から100ms周期
+        vTaskDelayUntil(&xLastWakeTime, xPeriod);  // 前回起床から200ms周期
     }
 }
 
@@ -373,7 +354,7 @@ void systemTask(void *arg)
   if (xTaskCreate(vl53l8cxInitTask, "vl53l8cxInitTask", 512, NULL, 2, NULL) != pdPASS) {
     while(1);
   }
-  xTaskCreate(vl53l8cx_get_tof_task, "vl53l8cx_get_tof_task", 1024, NULL, 2, NULL);
+  xTaskCreate(vl53l8cxGetTofTask, "vl53l8cxGetTofTask", 1024, NULL, 2, NULL);
   xSemaphoreTake(vl53l8cxGetTofDoneSem, portMAX_DELAY);
 
   ledSet(CHG_LED, 1);
@@ -712,7 +693,7 @@ LOG_GROUP_START(sys)
 LOG_ADD(LOG_INT8, testLogParam, &testLogParam)
 
 /**
- * @brief Gget_Ranging() の所要時間 [us] (vl53l8cx_get_tof_task内で計測)
+ * @brief Gget_Ranging() の所要時間 [us] (vl53l8cxGetTofTask内で計測)
  */
 // LOG_ADD(LOG_UINT32, rangingUs, &vl53l8cxRangingUs)
 

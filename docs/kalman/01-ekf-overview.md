@@ -53,7 +53,7 @@ EKF が推定する誤差状態は 9 次元（`kalman_core.h` の `KC_STATE_*`�
    | `Position` | `kalmanCoreUpdateWithPosition` | 外部位置（MoCap 等） |
    | `Pose` | `kalmanCoreUpdateWithPose` | 外部ポーズ（位置+姿勢） |
    | `AbsoluteHeight` | `kalmanCoreUpdateWithAbsoluteHeight` | 絶対高度源 |
-   | `YawError` | `kalmanCoreUpdateWithYawError` | AI deck 等のヨー補正 |
+   | `YawError` | `kalmanCoreUpdateWithYawError` | Lighthouse deck（ベースステーション幾何によるヨー推定。`estimatorEnqueueYawError()` の呼び出し元はリポジトリ全体でこれのみ） |
 
 4. **finalize** — `kalmanCoreFinalize()`（後述）。
 5. **健全性チェック** — `kalmanSupervisorIsStateWithinBounds()`。状態が発散していたらフィルタをリセット。

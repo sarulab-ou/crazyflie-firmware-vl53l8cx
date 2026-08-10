@@ -75,12 +75,25 @@ Flow deck + ToF 構成では使われないが、EKF が受け付ける残りの
 
 ## 6. ヨー誤差（mm_yaw_error.c）
 
-- 発生源: 外部からのヨー補正（例: AI deck での画像ベースのヨー推定など、
-  `estimatorEnqueueYawError()` を呼ぶモジュール）。
+- 発生源: **Lighthouse deck のみ**（`lighthouse_position_est.c` の `estimateYaw()` /
+  `estimateYawDeltaOneBaseStation()`）。`estimatorEnqueueYawError()` を呼ぶモジュールは
+  リポジトリ全体でここ1箇所しかなく、AI deck 等の他のデッキからは呼ばれていない
+  （AI deck ドライバ `aideck.c` はブートローダ／CPX 通信のみで、姿勢・位置推定には一切関与しない）。
+- 仕組み（`estimateYawDeltaOneBaseStation`, `lighthouse_position_est.c:392-434`）:
+  1. 1つの基地局から機体上の4つの受光センサーへのレイを計算し、
+     機体デッキ平面との交点 `intersectionPoints[4]` を求める。
+  2. EKF の現在の推定位置・姿勢（`R`）から、各センサーの実座標 `sensorPoints[4]` を計算する。
+  3. 対角線ペア（センサー 0-3, 1-2）それぞれについて、交点側ベクトルとセンサー側ベクトルの
+     向きのずれを `lighthouseGeometryYawDelta()` で角度差に変換し、2本の平均を `yawDelta` とする。
+  4. `yawErrorMeasurement_t { yawError: yawDelta, stdDev: 0.01（固定値） }` を作って
+     `estimatorEnqueueYawError()` でキューに投入
+     （`CONFIG_DECK_LIGHTHOUSE_AS_GROUNDTRUTH` 有効時は Lighthouse 側を真値として使うため投入しない）。
 - 測定データ: `yawErrorMeasurement_t { yawError, stdDev }`
-- 観測モデル: `h[KC_STATE_D2] = 1`、イノベーション `S[D2] − yawError` のスカラー更新。
-  ヨー方向の姿勢誤差状態のみを直接補正する。
-- 効果: 磁力計を持たない Crazyflie で唯一ドリフトし続けるヨー角への絶対補正手段。
+- 観測モデル（`mm_yaw_error.c:28-35`）: `h[KC_STATE_D2] = 1`、
+  イノベーション `S[KC_STATE_D2] − yawError` のスカラー更新。ヨー方向の姿勢誤差状態のみを直接補正する。
+- 効果: 磁力計を持たない Crazyflie で、Lighthouse deck 使用時に限りヨー角のドリフトを
+  絶対補正できる手段。Lighthouse を使わない構成（Flow deck + ToF のみ等）ではこの経路は
+  一切使われず、ヨーはジャイロ積分のままドリフトし続ける。
 
 ## まとめ: どの状態を誰が観測するか
 

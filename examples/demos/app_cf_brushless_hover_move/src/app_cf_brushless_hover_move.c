@@ -73,6 +73,11 @@ static uint16_t handTriggerHoldMs = 500;
 static float landSpeed   = 0.15f;  /* m/s, magnitude of descent rate */
 static float landCutoffM = 0.04f;  /* m, height at which motors cut */
 
+/* アーム成立後、離陸を開始するまでの待機時間 [s]。全プロペラがアイドル回転に
+ * 入って安定してから上昇させるためのもの。supervisor の landedTimeout
+ * (既定3000ms) を超えると自動でディスアームされるので、それ未満に収める。 */
+static float armDwellS = 3.0f;
+
 static const float takeoffTime_s   = 3.0f;
 static const float landMaxTime_s   = 6.0f;
 static const uint16_t loopDt_ms    = 20;   /* 50 Hz */
@@ -86,6 +91,7 @@ typedef enum {
   APP_WAIT_FOR_DECK,
   APP_PREARM,
   APP_ARMING,
+  APP_ARM_DWELL,
   APP_TAKEOFF,
   APP_HOVER1,
   APP_MOVE,
@@ -225,6 +231,7 @@ void appMain(void)
 
     bool inFlightState =
         (appState == APP_ARMING) ||
+        (appState == APP_ARM_DWELL) ||
         (appState == APP_TAKEOFF) ||
         (appState == APP_HOVER1) ||
         (appState == APP_MOVE) ||
@@ -349,10 +356,8 @@ void appMain(void)
         }
 
         if (armed) {
-          DEBUG_PRINT("Armed -> TAKEOFF\n");
-          takeoffX = estX;
-          takeoffY = estY;
-          appState = APP_TAKEOFF;
+          DEBUG_PRINT("Armed -> ARM_DWELL (%.1fs)\n", (double)armDwellS);
+          appState = APP_ARM_DWELL;
           stateStartTick = xTaskGetTickCount();
           break;
         }
@@ -366,6 +371,45 @@ void appMain(void)
         }
 
         supervisorRequestArming(true);
+        break;
+      }
+
+      case APP_ARM_DWELL: {
+        /* 全プロペラがアーム(アイドル回転)状態で待機する。推力は出さない。 */
+        stopSetpoint(&setpoint);
+        commanderSetSetpoint(&setpoint, 3);
+
+        if (!startMission) {
+          supervisorRequestArming(false);
+          appState = APP_IDLE;
+          stateStartTick = xTaskGetTickCount();
+          break;
+        }
+        if (!positioningInit) {
+          DEBUG_PRINT("Deck lost during arm dwell\n");
+          supervisorRequestArming(false);
+          appState = APP_WAIT_FOR_DECK;
+          break;
+        }
+        /* 待機中にディスアームされたら (landedTimeout 等) アームし直す。 */
+        if (!armed) {
+          DEBUG_PRINT("Disarmed during dwell -> ARMING\n");
+          appState = APP_ARMING;
+          stateStartTick = xTaskGetTickCount();
+          break;
+        }
+
+        float t = (float)(xTaskGetTickCount() - stateStartTick) / (float)configTICK_RATE_HZ;
+        phaseElapsedSLog = t;
+
+        if (t >= armDwellS) {
+          DEBUG_PRINT("Arm dwell done -> TAKEOFF\n");
+          /* 離陸基準点は上昇直前の推定値を使う (待機中の漂流を取り込む)。 */
+          takeoffX = estX;
+          takeoffY = estY;
+          appState = APP_TAKEOFF;
+          stateStartTick = xTaskGetTickCount();
+        }
         break;
       }
 
@@ -536,6 +580,7 @@ PARAM_ADD(PARAM_FLOAT, takeoffH, &takeoffHeight)
 PARAM_ADD(PARAM_FLOAT, moveDistM, &moveDistanceM)
 PARAM_ADD(PARAM_FLOAT, hoverTimeS, &hoverTimeS)
 PARAM_ADD(PARAM_FLOAT, moveTimeS, &moveTimeS)
+PARAM_ADD(PARAM_FLOAT, armDwellS, &armDwellS)
 PARAM_ADD(PARAM_UINT16, handMm, &handTriggerMm)
 PARAM_ADD(PARAM_UINT16, handHoldMs, &handTriggerHoldMs)
 PARAM_ADD(PARAM_FLOAT, landSpeed, &landSpeed)

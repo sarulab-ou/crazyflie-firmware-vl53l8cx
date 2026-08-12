@@ -1,0 +1,46 @@
+1      # version
+8192   # buffer size in bytes
+pwrlog   # file name
+1      # enable on startup (0/1)
+on:fixedFrequency
+100      # frequency (Hz) -- fast enough to catch battery sag & motor saturation on takeoff
+1      # mode (1: synchronous stabilizer -- logged in lock-step with the control loop)
+#
+# --- Commanded thrust & per-motor output --------------------------------
+# stabilizer.thrust : collective thrust the controller asked for.
+# motor.mN          : ACTUAL PWM duty applied to motor N, 0..65535 (=0..100%).
+#                     Effective motor voltage ~= (motor.mN / 65535) * pm.vbat.
+# motor.mNreq       : UNCAPPED requested power incl. battery compensation, same
+#                     scale but NOT clamped. If motor.mNreq > 65535 while
+#                     motor.mN is pinned at 65535 -> the motor is SATURATED, i.e.
+#                     the drone is asking for more thrust than the battery/ESC can
+#                     deliver. This is the primary "not enough power to climb" signal.
+stabilizer.thrust
+motor.m1
+motor.m2
+motor.m3
+motor.m4
+motor.m1req
+motor.m2req
+motor.m3req
+motor.m4req
+#
+# --- Battery / power ----------------------------------------------------
+# pm.vbat        : pack voltage [V]. Watch it sag under load; a big drop during
+#                  takeoff that pushes motors into saturation = under-powered.
+# pm.vbatMV      : same in mV (integer).
+# pm.batteryLevel: state-of-charge estimate [%].
+# pm.extCurr     : battery current [A] -- ONLY valid if a current-measuring deck
+#                  is fitted; 0 on a stock CF2.1(BL). With it you get real watts
+#                  (P = vbat * extCurr) and can see total power draw directly.
+pm.vbat
+pm.vbatMV
+pm.batteryLevel
+pm.extCurr
+#
+# --- Altitude tracking (target vs actual, both in mm) -------------------
+# ctrltargetZ.z  : commanded height [mm].
+# stateEstimateZ.z: estimated height [mm]. A persistent gap while motors are
+#                  saturated confirms the climb is power-limited.
+ctrltargetZ.z
+stateEstimateZ.z

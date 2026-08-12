@@ -62,6 +62,7 @@
 #include "buzzer.h"
 #include "sound.h"
 #include "sysload.h"
+#include "taskload.h"
 #include "estimator_kalman.h"
 #include "estimator_ukf.h"
 #include "deck.h"
@@ -125,6 +126,7 @@ void systemInit(void)
 
   usblinkInit();
   sysLoadInit();
+  taskLoadInit();
 #if CONFIG_ENABLE_CPX
   cpxlinkInit();
 #endif

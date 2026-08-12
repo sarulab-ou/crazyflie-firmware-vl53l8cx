@@ -1,0 +1,84 @@
+1      # version
+12288  # buffer size in bytes (大きめ: 変数が多く1サンプルが約200Bのため)
+alllog   # file name
+1      # enable on startup (0/1)
+on:fixedFrequency
+50       # frequency (Hz) -- 少し下げてtaskload+電源+モーターを1本にまとめる
+1      # mode (1: synchronous stabilizer)
+#
+# ============ タスクCPU実行時間 (taskload.*) [us/区間] ============
+taskload.cpuLoad
+taskload.total
+taskload.period
+taskload.STABILIZER
+taskload.KALMAN
+taskload.SENSORS
+taskload.PWRMGNT
+taskload.CMDHL
+taskload.APP
+taskload.FLOW
+taskload.ZRANGER2
+taskload.VL53L8CX
+taskload.USDLOG
+taskload.USDWRITE
+taskload.SYSTEM
+taskload.CRTP_TX
+taskload.CRTP_RX
+taskload.SYSLINK
+taskload.USBLINK
+taskload.LOGT
+taskload.PARAM
+taskload.MEM
+taskload.WORKER
+taskload.PLATFORM
+taskload.CRTP_SRV
+taskload.IDLE
+#
+# ============ メモリ (memload.*) ============
+memload.heapFree
+memload.heapMin
+memload.stackMin
+memload.stackMinId
+#
+# ============ タスク別スタック残量 (taskstack.*) [byte] ============
+taskstack.STABILIZER
+taskstack.KALMAN
+taskstack.SENSORS
+taskstack.PWRMGNT
+taskstack.CMDHL
+taskstack.APP
+taskstack.FLOW
+taskstack.ZRANGER2
+taskstack.VL53L8CX
+taskstack.USDLOG
+taskstack.USDWRITE
+taskstack.SYSTEM
+taskstack.CRTP_TX
+taskstack.CRTP_RX
+taskstack.SYSLINK
+taskstack.USBLINK
+taskstack.LOGT
+taskstack.PARAM
+taskstack.MEM
+taskstack.WORKER
+taskstack.PLATFORM
+taskstack.CRTP_SRV
+taskstack.IDLE
+#
+# ============ モーター出力・電源・高度 (電力不足の切り分け) ============
+# motor.mN=実PWM(0..65535=0..100%), motor.mNreq=無制限要求値(>65535で飽和=パワー不足)
+# 電流計デッキが無いので pm.extCurr は記録しない (実電力[W]は測れない)
+stabilizer.thrust
+motor.m1
+motor.m2
+motor.m3
+motor.m4
+motor.m1req
+motor.m2req
+motor.m3req
+motor.m4req
+pm.vbat
+pm.vbatMV
+pm.batteryLevel
+ctrltargetZ.z
+stateEstimateZ.z

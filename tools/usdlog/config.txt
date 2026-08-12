@@ -128,5 +128,9 @@ vl53l8cx_s8.st15
 stateEstimate.x
 stateEstimate.y
 stateEstimate.z
+memload.heapFree
+memload.heapMin
+memload.stackMin
+memload.stackMinId
 pm.vbatMV
 on:activeMarkerModeChanged

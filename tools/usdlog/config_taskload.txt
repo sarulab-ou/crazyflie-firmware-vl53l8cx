@@ -1,0 +1,60 @@
+1      # version
+4096   # buffer size in bytes
+tasklog   # file name
+1      # enable on startup (0/1)
+on:fixedFrequency
+10       # frequency (Hz) -- taskload updates at 1 Hz, 10 Hz oversamples plenty
+2      # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
+taskload.cpuLoad
+taskload.total
+taskload.period
+taskload.STABILIZER
+taskload.KALMAN
+taskload.SENSORS
+taskload.PWRMGNT
+taskload.CMDHL
+taskload.APP
+taskload.FLOW
+taskload.ZRANGER2
+taskload.VL53L8CX
+taskload.USDLOG
+taskload.USDWRITE
+taskload.SYSTEM
+taskload.CRTP_TX
+taskload.CRTP_RX
+taskload.SYSLINK
+taskload.USBLINK
+taskload.LOGT
+taskload.PARAM
+taskload.MEM
+taskload.WORKER
+taskload.PLATFORM
+taskload.CRTP_SRV
+taskload.IDLE
+memload.heapFree
+memload.heapMin
+memload.stackMin
+memload.stackMinId
+taskstack.STABILIZER
+taskstack.KALMAN
+taskstack.SENSORS
+taskstack.PWRMGNT
+taskstack.CMDHL
+taskstack.APP
+taskstack.FLOW
+taskstack.ZRANGER2
+taskstack.VL53L8CX
+taskstack.USDLOG
+taskstack.USDWRITE
+taskstack.SYSTEM
+taskstack.CRTP_TX
+taskstack.CRTP_RX
+taskstack.SYSLINK
+taskstack.USBLINK
+taskstack.LOGT
+taskstack.PARAM
+taskstack.MEM
+taskstack.WORKER
+taskstack.PLATFORM
+taskstack.CRTP_SRV
+taskstack.IDLE

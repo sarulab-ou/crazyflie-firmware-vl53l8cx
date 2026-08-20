@@ -34,6 +34,7 @@
 static TaskHandle_t g_task = NULL;
 /* Per-sensor average of the 16 zone distances [mm]. Updated in Gget_Ranging() (system.c). */
 float vl53l8cxToFAvg[vl53l8cx_NUM_SENSORS] = {0};
+float vl53l8cxToFAvgSub[vl53l8cx_NUM_SENSORS] = {0};
 /* Per-sensor raw distance [mm] and target_status of each of the 16 zones. Updated in Gget_Ranging() (system.c). */
 int16_t vl53l8cxToFDist[vl53l8cx_NUM_SENSORS][16] = {{0}};
 uint8_t vl53l8cxToFStatus[vl53l8cx_NUM_SENSORS][16] = {{0}};

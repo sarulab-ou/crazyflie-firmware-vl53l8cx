@@ -243,15 +243,32 @@ void Gget_Ranging()
             vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
 
             int32_t tofTotal = 0;
+            int32_t tofTotalSub = 0;
+            int16_t count = 0;
+            int16_t countSub = 0;
             for (int z = 0; z < 16; z++)
             {
                 int16_t dist = Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * z];
-                uint8_t st = Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * z];
+                // uint8_t st = Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * z];
                 vl53l8cxToFDist[DevAddr[k]][z] = dist;
-                vl53l8cxToFStatus[DevAddr[k]][z] = st;
-                tofTotal += dist;
+                // vl53l8cxToFStatus[DevAddr[k]][z] = st;
+                // Average the central 4 zones only, and only over zones that
+                // actually returned a target -- a zone reading <=0 means "no
+                // return" and would otherwise drag the average down, making a
+                // wall look closer than it is.
+                if((z == 5 || z == 6 || z == 9 || z == 10) && dist > 0 && dist < 4000){
+                  tofTotal += dist;
+                  count++;
+                }else if(dist > 0 && dist < 4000){
+                  tofTotalSub += dist;
+                  countSub++;
+                }
+                // tofTotal += dist;
             }
-            vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
+            // No valid central zone -> report -1 ("no reading") rather than
+            // dividing by zero. Consumers treat any non-positive value as invalid.
+            vl53l8cxToFAvg[DevAddr[k]] = (count > 0) ? (tofTotal / (float)count) : -1.0f;
+            vl53l8cxToFAvgSub[DevAddr[k]] = (countSub > 0) ? (tofTotalSub / (float)countSub) : -1.0f;
 
             // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
         }
@@ -298,7 +315,9 @@ void vl53l8cxGetTofTask(void *param){
     xSemaphoreGive(vl53l8cxGetTofDoneSem);
     // 正確に10Hzで回すため、処理時間を吸収する vTaskDelayUntil を使う
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xPeriod = pdMS_TO_TICKS(200);  // 5Hz
+    const TickType_t xPeriod = pdMS_TO_TICKS(100);  // 10Hz
+
+    systemWaitStart();
     while(1){
         spiBeginTransaction(SPI_BAUDRATE_2MHZ);
         uint64_t rangingStart = usecTimestamp();

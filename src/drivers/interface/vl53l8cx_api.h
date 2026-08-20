@@ -186,6 +186,7 @@ extern "C"
 #define VL53L8CX_UI_CMD_STATUS ((uint16_t)0x2C00U)
 #define VL53L8CX_UI_CMD_START ((uint16_t)0x2C04U)
 #define VL53L8CX_UI_CMD_END ((uint16_t)0x2FFFU)
+#define VL53L8CX_DISABLE_TARGET_STATUS
 
     /**
      * @brief Inner values for API. Max buffer size depends of the selected output.
@@ -378,12 +379,13 @@ extern "C"
     };
 
 #ifndef vl53l8cx_NUM_SENSORS
-        #define vl53l8cx_NUM_SENSORS 11
+        #define vl53l8cx_NUM_SENSORS 10
 #endif
         extern VL53L8CX_ResultsData Results;
         // extern VL53L8CX_Configuration Dev;  // Sensor configuration
         extern VL53L8CX_Configuration MDev[vl53l8cx_NUM_SENSORS];  // Sensor configuration for multiple sensors
         extern float vl53l8cxToFAvg[vl53l8cx_NUM_SENSORS];  // Per-sensor average of the 16 zone distances [mm]
+        extern float vl53l8cxToFAvgSub[vl53l8cx_NUM_SENSORS];  // Per-sensor average of the 16 zone distances [mm] for subdeck
         extern int16_t vl53l8cxToFDist[vl53l8cx_NUM_SENSORS][16];   // Per-sensor raw distance of each of the 16 zones [mm]
         extern uint8_t vl53l8cxToFStatus[vl53l8cx_NUM_SENSORS][16]; // Per-sensor target_status of each of the 16 zones
 

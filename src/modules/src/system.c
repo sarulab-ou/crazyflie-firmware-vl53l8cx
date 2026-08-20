@@ -242,15 +242,19 @@ void Gget_Ranging()
             vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
 
             int32_t tofTotal = 0;
+            int32_t count = 0;
             for (int z = 0; z < 16; z++)
             {
                 int16_t dist = Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * z];
-                uint8_t st = Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * z];
+                // uint8_t st = Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * z];
                 vl53l8cxToFDist[DevAddr[k]][z] = dist;
-                vl53l8cxToFStatus[DevAddr[k]][z] = st;
-                tofTotal += dist;
+                // vl53l8cxToFStatus[DevAddr[k]][z] = st;
+                if(dist > 0) {
+                  tofTotal += dist;
+                  count++;
+                }
             }
-            vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
+            vl53l8cxToFAvg[DevAddr[k]] = count > 0 ? tofTotal / (float)count : 0.0f;
             /* このセンサーだけが新しい測距値を得た。ToF オドメトリは
              * このカウンタを見て、更新のあったセンサーだけを使う。 */
             vl53l8cxSensorSeq[DevAddr[k]]++;
@@ -323,7 +327,10 @@ void vl53l8cx_get_tof_task(void *param){
     xSemaphoreGive(vl53l8cxGetTofDoneSem);
     // 正確に10Hzで回すため、処理時間を吸収する vTaskDelayUntil を使う
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xPeriod = pdMS_TO_TICKS(200);  // 5Hz
+    const TickType_t xPeriod = pdMS_TO_TICKS(100);  // 5Hz
+
+    systemWaitStart();
+
     while(1){
         spiBeginTransaction(SPI_BAUDRATE_2MHZ);
         uint64_t rangingStart = usecTimestamp();

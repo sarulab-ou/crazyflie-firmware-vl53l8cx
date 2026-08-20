@@ -378,7 +378,7 @@ extern "C"
     };
 
 #ifndef vl53l8cx_NUM_SENSORS
-        #define vl53l8cx_NUM_SENSORS 11
+        #define vl53l8cx_NUM_SENSORS 9
 #endif
         extern VL53L8CX_ResultsData Results;
         // extern VL53L8CX_Configuration Dev;  // Sensor configuration

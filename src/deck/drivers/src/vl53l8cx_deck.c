@@ -14,6 +14,7 @@
 #include "system.h"
 #include "task.h"
 #include "tof_odometry.h"
+#include "tof_wall_angle.h"
 #include "vl53l8cx_api.h"
 /* Deck SPI and GPIO APIs */
 #include "deck_constants.h"
@@ -64,19 +65,28 @@ static void vl53l8cxTask(void* arg)
     /* Convert the ToF point clouds into translational and rotational motion
      * estimates. Runs once per ranging sweep (Gget_Ranging(), 5 Hz) rather than
      * on its own timer, so no frame is processed twice or skipped. */
-    // tofOdometryInit();
-    // uint32_t lastSeq = vl53l8cxFrameSeq;
+    tofOdometryInit();
+#if TOF_WALL_ANGLE_ENABLED
+    /* 壁に対する機体のヨーずれを ToF だけで推定する (ジャイロ不使用)。
+     * オドメトリとは独立で、結果は log グループ "tofwall" と
+     * tofWallAngleGetBodyDeg() から参照できる。 */
+    tofWallAngleInit();
+#endif
+    uint32_t lastSeq = vl53l8cxFrameSeq;
 
-    // while (1)
-    // {
-    //     uint32_t seq = vl53l8cxFrameSeq;
-    //     if (seq != lastSeq)
-    //     {
-    //         lastSeq = seq;
-    //         tofOdometryUpdate();
-    //     }
-    //     vTaskDelay(pdMS_TO_TICKS(20)); // poll at 50Hz, ranging arrives at 5Hz
-    // }
+    while (1)
+    {
+        uint32_t seq = vl53l8cxFrameSeq;
+        if (seq != lastSeq)
+        {
+            lastSeq = seq;
+            tofOdometryUpdate();
+#if TOF_WALL_ANGLE_ENABLED
+            tofWallAngleUpdate();
+#endif
+        }
+        vTaskDelay(pdMS_TO_TICKS(20)); // poll at 50Hz, ranging arrives at 5Hz
+    }
     vTaskDelete(NULL);
 }
 

@@ -29,3 +29,15 @@ void tofOdometryInit(void);
  * vl53l8cxToFDist[] / vl53l8cxToFStatus[] の最新値を読み、log 変数を更新する。
  */
 void tofOdometryUpdate(void);
+
+/* --- 壁角推定 (tof_wall_angle.c) から使う公開ヘルパー ---
+ * 既存の tofOdometryInit()/Update() の動作には影響しない。 */
+
+/** TOFODO_SENSORS[] の si 番目に対応する物理センサー番号 (範囲外は 0xFF)。 */
+uint8_t tofOdometryGetSensorId(int si);
+
+/** si 番目のセンサーの取り付け yaw [deg] (機体前方 +x が 0)。 */
+float tofOdometryGetMountYawDeg(int si);
+
+/** si 番目のセンサーの最新測距から平面を1枚抽出する。取れたら true。 */
+bool tofOdometryFitSensorPlane(int si, float n[3], float *d, float *planarity);

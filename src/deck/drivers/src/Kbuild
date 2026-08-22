@@ -27,3 +27,4 @@ obj-$(CONFIG_DECK_DECKCTRL_DEVBOARD)    += deckctrl_devboard.o
 obj-$(CONFIG_DECK_COLORLED)             += color_led_deck.o
 obj-$(CONFIG_DECK_VL53L8CX11)           += vl53l8cx_deck.o
 obj-$(CONFIG_DECK_VL53L8CX11)           += tof_odometry.o
+obj-$(CONFIG_DECK_VL53L8CX11)           += tof_wall_angle.o

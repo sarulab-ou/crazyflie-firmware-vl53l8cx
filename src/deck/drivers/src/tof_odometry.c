@@ -805,6 +805,82 @@ static int solveTranslation(const float Nprev[TOFODO_NUM_SENSORS][3],
 }
 
 /* ============================================================
+ * 壁角推定 (tof_wall_angle.c) 向けの公開ヘルパー
+ *
+ * 既存の推定処理には一切手を入れず、「1センサー分の平面抽出」だけを外部から
+ * 呼べるようにするための薄いラッパー。tofOdometryUpdate() とは独立に動くので、
+ * tofodo.enable = 0 で本体を止めていても壁角推定は動く。
+ * ============================================================ */
+
+/** TOFODO_SENSORS[] の si 番目に対応する物理センサー番号を返す。 */
+uint8_t tofOdometryGetSensorId(int si)
+{
+    if (si < 0 || si >= TOFODO_NUM_SENSORS)
+    {
+        return 0xFF;
+    }
+    return TOFODO_SENSORS[si];
+}
+
+/** そのセンサーの取り付け yaw [deg] (機体前方 +x を 0 とする光軸の向き)。 */
+float tofOdometryGetMountYawDeg(int si)
+{
+    if (si < 0 || si >= TOFODO_NUM_SENSORS)
+    {
+        return NANF;
+    }
+    return SENSOR_MOUNT_YPR[TOFODO_SENSORS[si]][0];
+}
+
+/**
+ * si 番目のセンサーの最新測距から PCA+RANSAC で平面を1枚抽出する。
+ *
+ * n[3]      : ボディ座標系での単位法線 (原点→平面向き)
+ * d         : 原点から平面までの垂直距離 [mm]
+ * planarity : 平面性スコア λ3/Σλ
+ * 戻り値    : 平面が取れたら true
+ *
+ * 注: 点群バッファは static。tofOdometryUpdate() と同じ vl53l8cx タスクから
+ *     直列に呼ぶ前提 (別タスクから呼ぶ場合は排他が必要)。
+ */
+bool tofOdometryFitSensorPlane(int si, float n[3], float *d, float *planarity)
+{
+    if (si < 0 || si >= TOFODO_NUM_SENSORS)
+    {
+        return false;
+    }
+    if (!s_initialized)
+    {
+        tofOdometryInit();
+    }
+
+    static float Pw[NZONE][3];
+    int np = pointsBody(si, Pw);
+
+    Plane pl;
+    if (!fitPlaneRansac(Pw, np, &pl))
+    {
+        return false;
+    }
+
+    if (n != NULL)
+    {
+        n[0] = pl.n[0];
+        n[1] = pl.n[1];
+        n[2] = pl.n[2];
+    }
+    if (d != NULL)
+    {
+        *d = pl.d;
+    }
+    if (planarity != NULL)
+    {
+        *planarity = pl.planarity;
+    }
+    return true;
+}
+
+/* ============================================================
  * 公開 API
  * ============================================================ */
 void tofOdometryInit(void)

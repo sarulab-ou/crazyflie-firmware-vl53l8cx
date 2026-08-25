@@ -59,6 +59,7 @@
 #include "debug.h"
 #include "log.h"
 #include "param.h"
+#include "tof_wall_angle.h"
 
 #define DEBUG_MODULE "CHAMBER_BL"
 
@@ -101,7 +102,7 @@ static float armDwellS = 3.0f;
  * axes: v = clamp(kCenter * (dNear - dFar), +-centerMaxV). No target
  * distance and no deadband: the opposing pair of walls IS the reference,
  * so the command goes to zero exactly when the drone is centred. */
-static float kCenter    = 0.3f;    /* centering gain (same as slam_tunnel) */
+static float kCenter    = 0.7f;    /* centering gain (same as slam_tunnel) */
 static float centerMaxV = 0.05f;   /* m/s, centering command clamp (small box) */
 
 /* Deadband on the OPPOSING-PAIR DIFFERENCE [m]. While |dNear - dFar| is at
@@ -124,17 +125,68 @@ static uint8_t holdBandUsePos = 0;
 static uint16_t handTriggerMm     = 300;
 static uint16_t handTriggerHoldMs = 500;
 
-/* Landing: constant, gentle descent. Motors cut once estZ drops below
- * landCutoffM, or after landMaxTime_s regardless. */
-static float landSpeed   = 0.15f;   /* m/s */
+/* Landing: constant-velocity descent, sized so the whole descent takes
+ * landTimeS. The commanded speed is takeoffHeight / landTimeS, so changing
+ * the hover height keeps the landing duration the same (mirrors takeoff,
+ * which is also specified as a time rather than a speed).
+ * Motors cut once estZ drops below landCutoffM, or after landMaxTime_s
+ * regardless -- landMaxTime_s stays a generous safety fallback, not the
+ * nominal duration. */
+static float landTimeS   = 1.0f;    /* s, nominal descent duration */
 static float landCutoffM = 0.04f;   /* m */
+
+/* Yaw alignment to the walls during hover. tof_wall_angle.c fits a plane to
+ * each vl53l8cx fan and fuses the wall-normal azimuths with a 4x circular
+ * mean, giving bodyDeg = the body's yaw offset from square-on to the nearest
+ * wall, in [-45,+45), 0 = perpendicular. It is a ToF-only absolute measure
+ * (no gyro integration), so unlike the estimator's yaw it does not drift.
+ *
+ * SIGN: az[] is the wall normal's azimuth expressed in BODY coordinates, and
+ * a body yawed by +psi sees that azimuth shift by -psi. So bodyDeg = -psi
+ * relative to square, and the estimator-frame heading that squares us up is
+ *   desired = yawDeg + bodyDeg
+ * yawAlignSign is exposed so this can be flipped in flight if the rig
+ * disagrees -- a wrong sign here diverges instead of converging. log73/log74
+ * settled this empirically: -1 is correct (log73 flew +1 and diverged from
+ * 5 to 20 deg; log74 flew -1 and held a median 5.1 deg).
+ *
+ * The setpoint is driven by a PROPORTIONAL law on the MEASURED WALL
+ * MISALIGNMENT -- wallYaw itself, not the setpoint residual:
+ *
+ *   rate = clamp(yawKp * yawAlignSign * wallYaw, +-yawRateMaxDps)   [deg/s]
+ *   yawCmdDeg += rate * dt
+ *
+ * With yawKp = 0.2 /s and yawRateMaxDps = 5 deg/s that gives
+ *   |wallYaw| >= 25 deg -> 5 deg/s (saturated)
+ *   |wallYaw|  = 20 deg -> 4 deg/s
+ *   |wallYaw|  = 15 deg -> 3 deg/s
+ *   |wallYaw|  = 10 deg -> 2 deg/s
+ * and while |wallYaw| < yawDeadbandDeg the setpoint is FROZEN (no correction
+ * at all), so it stops chattering once the drone is square to the wall.
+ * The deadband cuts in above where the P law would still be asking for
+ * 1 deg/s, which is intentional.
+ *
+ * Driving off wallYaw directly (rather than off "desired - yawCmd") keeps the
+ * estimator's noisy yaw out of the loop: wallYaw is an absolute, ToF-only
+ * measurement of exactly the quantity we want to zero.
+ *
+ * dt is measured from the tick counter, not assumed to be loopDt_ms: log74
+ * showed this loop actually running at ~29 Hz, which would have made a
+ * nominal 5 deg/s come out as ~3 deg/s.
+ *
+ * Only APP_HOVER aligns; takeoff and landing keep holding holdYawDeg. */
+static uint8_t yawAlignEnable = 1;
+static float yawAlignSign     = -1.0f;
+static float yawRateMaxDps    = 9.0f;   /* deg/s, hard cap on the correction rate */
+static float yawKp            = 0.2f;   /* 1/s, correction rate per deg of error */
+static float yawDeadbandDeg   = 5.0f;   /* deg, below this the setpoint is frozen */
 
 /* Yaw is held at this absolute heading for the whole mission (takeoff,
  * hover, landing). The centering above is expressed in body axes, so the
  * body/chamber axes must stay aligned for it to mean anything. */
 static float holdYawDeg = 0.0f;   /* deg */
 
-static const float takeoffTime_s      = 3.0f;
+static const float takeoffTime_s      = 2.0f;  /* s, 0 -> takeoffHeight ramp */
 static const float landMaxTime_s      = 6.0f;
 static const uint16_t loopDt_ms       = 20;   /* 50 Hz */
 static const uint16_t deckStableMs    = 500;
@@ -183,12 +235,28 @@ static float vyCmdLog = 0.0f;
 static uint8_t holdXLog = 0;
 static uint8_t holdYLog = 0;
 
+/* yaw alignment: measured wall offset, commanded heading, measurement valid */
+static float wallYawDegLog = 0.0f;
+static float yawCmdDegLog = 0.0f;
+static uint8_t yawAlignOkLog = 0;
+/* remaining setpoint error and the rate the P law asked for */
+static float yawErrDegLog = 0.0f;
+static float yawRateDpsLog = 0.0f;
+
 /* ========================= Helpers ========================= */
 static inline float clampf(float x, float lo, float hi)
 {
   if (x < lo) return lo;
   if (x > hi) return hi;
   return x;
+}
+
+/* Wrap an angle into [-180, 180) deg. */
+static inline float wrap180f(float deg)
+{
+  while (deg >= 180.0f) deg -= 360.0f;
+  while (deg < -180.0f) deg += 360.0f;
+  return deg;
 }
 
 /* Driver's central-4-zone average for one sensor, in metres. The driver
@@ -327,6 +395,9 @@ void appMain(void)
    * in and left alone until the axis leaves the band again. */
   float bandHoldX = 0.0f, bandHoldY = 0.0f;
   bool inBandX = false, inBandY = false;
+  /* Rate-limited absolute yaw setpoint used during hover. */
+  float yawCmdDeg = 0.0f;
+  uint32_t yawLastTick = 0;   /* for the measured-dt yaw rate limit */
   /* Landing returns to the captured takeoff point, not to wherever the
    * centering left us -- the chamber mission is "take off and land on the
    * same spot". */
@@ -397,6 +468,11 @@ void appMain(void)
         vyCmdLog = 0.0f;
         holdXLog = 0;
         holdYLog = 0;
+        wallYawDegLog = 0.0f;
+        yawCmdDegLog = 0.0f;
+        yawAlignOkLog = 0;
+        yawErrDegLog = 0.0f;
+        yawRateDpsLog = 0.0f;
 
         if (usdLoggingActive) {
           paramSetInt(idUsdLogging, 0);
@@ -574,6 +650,8 @@ void appMain(void)
           // DEBUG_PRINT("Takeoff complete -> HOVER %.1fs\n", (double)hoverTimeS);
           bandHoldX = takeoffX; bandHoldY = takeoffY;
           inBandX = false; inBandY = false;
+          yawCmdDeg = holdYawDeg;   /* start from where takeoff left us */
+          yawLastTick = xTaskGetTickCount();
           appState = APP_HOVER;
           stateStartTick = xTaskGetTickCount();
         }
@@ -629,14 +707,54 @@ void appMain(void)
         holdXLog = centredX ? 1 : 0;
         holdYLog = centredY ? 1 : 0;
 
+        /* --- yaw: square the sensors up to the walls, slew-rate limited --- */
+        /* tofWallAngleIsValid() is the module's own gate: the fused angle has
+         * cleared tofwall.confMin (default 0.70) and has been refreshed within
+         * the last STALE_FRAMES (10) ranging frames. Without it we would be
+         * steering off a stale or low-agreement estimate. */
+        bool yawOk = yawAlignEnable && tofWallAngleIsValid();
+        float wallYawDeg = yawOk ? tofWallAngleGetBodyDeg() : 0.0f;
+
+        /* Measured loop period, so the deg/s figures below are real. Clamped
+         * so a scheduling hiccup or the first pass cannot produce a jump. */
+        uint32_t nowTick = xTaskGetTickCount();
+        float dtS = (float)(nowTick - yawLastTick) / (float)configTICK_RATE_HZ;
+        yawLastTick = nowTick;
+        dtS = clampf(dtS, 0.0f, 0.2f);
+
+        float yawErr = 0.0f, yawRate = 0.0f;
+        if (yawOk && isfinite(wallYawDeg)) {
+          /* The error the loop acts on IS the wall misalignment. yawAlignSign
+           * turns it into "which way must the heading setpoint move". */
+          yawErr = yawAlignSign * wallYawDeg;
+
+          if (fabsf(wallYawDeg) >= yawDeadbandDeg) {
+            /* Proportional, saturating at yawRateMaxDps. */
+            yawRate = clampf(yawKp * yawErr, -yawRateMaxDps, yawRateMaxDps);
+            yawCmdDeg = wrap180f(yawCmdDeg + yawRate * dtS);
+          }
+          /* else: within yawDeadbandDeg of square -> hold the heading exactly. */
+        } else {
+          /* No usable wall estimate (or alignment disabled): freeze the
+           * setpoint rather than snapping back to holdYawDeg, so a momentary
+           * dropout does not jerk the yaw. */
+          wallYawDeg = 0.0f;
+        }
+        wallYawDegLog = wallYawDeg;
+        yawCmdDegLog = yawCmdDeg;
+        yawAlignOkLog = yawOk ? 1 : 0;
+        yawErrDegLog = yawErr;
+        yawRateDpsLog = yawRate;
+
         /* Body-velocity on the axes still being centred; the centred axes
          * either hold position (modeAbs) or just command zero velocity,
-         * depending on holdBandUsePos. Height and yaw stay absolute. */
+         * depending on holdBandUsePos. Height is absolute; yaw is the
+         * rate-limited wall-aligned heading. */
         bool posHoldX = centredX && holdBandUsePos;
         bool posHoldY = centredY && holdBandUsePos;
         setHoverMixedSetpoint(&setpoint, posHoldX, posHoldY,
                               bandHoldX, bandHoldY, vx, vy,
-                              takeoffHeight, holdYawDeg);
+                              takeoffHeight, yawCmdDeg);
         commanderSetSetpoint(&setpoint, 3);
 
         float t = (float)(xTaskGetTickCount() - stateStartTick) / (float)configTICK_RATE_HZ;
@@ -656,6 +774,10 @@ void appMain(void)
         bool stillDescending = (estZ > landCutoffM) && (t < landMaxTime_s);
 
         if (stillDescending) {
+          /* takeoffHeight in landTimeS seconds. Guard against a zero/negative
+           * landTimeS being written over the radio. */
+          float landSpeed = (landTimeS > 0.05f) ? (takeoffHeight / landTimeS)
+                                                : (takeoffHeight / 0.05f);
           setLandDescentSetpoint(&setpoint, takeoffX, takeoffY, -landSpeed, holdYawDeg);
           commanderSetSetpoint(&setpoint, 3);
         } else {
@@ -692,10 +814,15 @@ PARAM_ADD(PARAM_FLOAT, kCenter, &kCenter)
 PARAM_ADD(PARAM_FLOAT, centerMaxV, &centerMaxV)
 PARAM_ADD(PARAM_FLOAT, holdBandM, &holdBandM)
 PARAM_ADD(PARAM_UINT8, holdBandPos, &holdBandUsePos)
+PARAM_ADD(PARAM_UINT8, yawAlign, &yawAlignEnable)
+PARAM_ADD(PARAM_FLOAT, yawAlignSign, &yawAlignSign)
+PARAM_ADD(PARAM_FLOAT, yawRateMax, &yawRateMaxDps)
+PARAM_ADD(PARAM_FLOAT, yawKp, &yawKp)
+PARAM_ADD(PARAM_FLOAT, yawDbDeg, &yawDeadbandDeg)
 PARAM_ADD(PARAM_FLOAT, holdYawDeg, &holdYawDeg)
 PARAM_ADD(PARAM_UINT16, handMm, &handTriggerMm)
 PARAM_ADD(PARAM_UINT16, handHoldMs, &handTriggerHoldMs)
-PARAM_ADD(PARAM_FLOAT, landSpeed, &landSpeed)
+PARAM_ADD(PARAM_FLOAT, landTimeS, &landTimeS)
 PARAM_ADD(PARAM_FLOAT, landCutoffM, &landCutoffM)
 PARAM_GROUP_STOP(chamber)
 
@@ -719,4 +846,9 @@ LOG_ADD(LOG_FLOAT, vxCmd, &vxCmdLog)
 LOG_ADD(LOG_FLOAT, vyCmd, &vyCmdLog)
 LOG_ADD(LOG_UINT8, holdX, &holdXLog)
 LOG_ADD(LOG_UINT8, holdY, &holdYLog)
+LOG_ADD(LOG_FLOAT, wallYaw, &wallYawDegLog)
+LOG_ADD(LOG_FLOAT, yawCmd, &yawCmdDegLog)
+LOG_ADD(LOG_UINT8, yawAlignOk, &yawAlignOkLog)
+LOG_ADD(LOG_FLOAT, yawErr, &yawErrDegLog)
+LOG_ADD(LOG_FLOAT, yawRate, &yawRateDpsLog)
 LOG_GROUP_STOP(chamber)

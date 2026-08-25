@@ -1,5 +1,48 @@
 /*
- * app_cf_brushless_chamber_takeoff_Pcontrol.c
+ * app_cf_brushless_chamber_takeoff_Pcontrol_hybrid.c
+ *
+ * HYBRID variant. The PCA/RANSAC plane distance is better than the raw zone
+ * average when it is available, but log200 showed it often is NOT: during
+ * hover the fit succeeded 33-92 % of the time depending on the wall (it is the
+ * planarity test that rejects it, not a lack of range data), and below ~10 cm
+ * of altitude it fails almost completely because the floor enters the fan and
+ * the two surfaces cannot be fitted as one plane.
+ *
+ * So this build picks the source per phase and per axis:
+ *
+ *   TAKEOFF : always the zone average. The drone is low, the plane fit is
+ *             unusable there, and a ramping height is no time to be losing
+ *             the horizontal loop.
+ *   HOVER   : per axis. If BOTH walls of an opposing pair have a plane, that
+ *             axis uses the plane distances; if either one is missing, that
+ *             axis falls back to the zone average for BOTH of its sensors.
+ *   LAND    : always the zone average, same reason as takeoff.
+ *
+ * The "both or neither" rule matters: the plane distance is measured from the
+ * BODY ORIGIN while the zone average is measured from the SENSOR, so mixing
+ * the two within one axis would inject the mount offset (59.2 mm front/back,
+ * 21.7 mm left/right) straight into the centering error.
+ *
+ * The old measurement, vl53l8cxToFAvg[], is the mean of the 16 (or central 4)
+ * zone ranges of one sensor. Three things are wrong with it as a "distance to
+ * the wall":
+ *   1. Each zone measures along its own slanted ray, so the mean is longer
+ *      than the perpendicular distance, and the error grows with tilt.
+ *   2. A zone that clips the floor, the ceiling or a corner drags the mean.
+ *   3. It is measured from the SENSOR, so opposing pairs sum to
+ *      (box - sensor separation), not to the box width. Flight logs showed
+ *      front+back ~0.44 m in a 0.50 m chamber for exactly this reason.
+ *
+ * tofOdometryFitSensorPlane() already solves all three: it converts the 16
+ * zones into body-frame points (mount rotation and translation applied), fits
+ * a plane with RANSAC + PCA, and returns d = the perpendicular distance from
+ * the BODY ORIGIN to that plane. tof_wall_angle.c runs that fit for all six
+ * horizontal sensors on every ranging frame anyway, so this app reads the
+ * cached result through tofWallAngleGetPlaneDistM() -- no extra computation,
+ * and no touching the fitter's static point buffer from the wrong task.
+ *
+ * chamber.wallSrc selects the source so the two can be compared back to back
+ * on the same rig without a reflash.
  *
  * Standalone app-layer mission for the Crazyflie Brushless with a flow
  * deck (plus an optional vl53l8cx multizone ToF deck for logging the
@@ -122,6 +165,20 @@ static uint8_t landUsePControl = 1;
  * axes: v = clamp(kCenter * (dNear - dFar), +-centerMaxV). No target
  * distance and no deadband: the opposing pair of walls IS the reference,
  * so the command goes to zero exactly when the drone is centred. */
+/* Distance source used during HOVER. Takeoff and landing always use the zone
+ * average -- see the file header.
+ *   0 = zone average only
+ *   1 = HYBRID (default): plane distances on an axis whose BOTH walls were
+ *       fitted, zone average on an axis where either wall is missing
+ *   2 = plane only; an axis without both planes is left undriven. Useful for
+ *       measuring how often the fit really succeeds. */
+static uint8_t hoverWallSrc = 1;
+
+/* Which source each axis ended up on, for the log.
+ * 1 = plane, 0 = zone average, -1 = axis has no usable measurement. */
+static int8_t srcXLog = 0;
+static int8_t srcYLog = 0;
+
 static float kCenter    = 0.3f;    /* centering gain (same as slam_tunnel) */
 static float centerMaxV = 0.15f;   /* m/s, centering command clamp (small box) */
 
@@ -228,6 +285,18 @@ static float vyCmdLog = 0.0f;
  * is still recorded for comparison, while yawCmd is simply the constant
  * heading actually being commanded and yawErr / yawRate stay 0 because no
  * correction is applied. Same names and types as app_cf_brushless_chamber.c. */
+/* Both measurements, logged side by side so the plane fit can be validated
+ * against the zone average in post-processing. pXxx = plane, zXxx = zone avg. */
+static float pFrontLog = -1.0f;
+static float pBackLog  = -1.0f;
+static float pLeftLog  = -1.0f;
+static float pRightLog = -1.0f;
+static float zFrontLog = -1.0f;
+static float zBackLog  = -1.0f;
+static float zLeftLog  = -1.0f;
+static float zRightLog = -1.0f;
+static uint8_t planeOkLog = 0;   /* bit0=front bit1=back bit2=left bit3=right */
+
 static float wallYawDegLog = 0.0f;
 static float yawCmdDegLog = 0.0f;
 static uint8_t yawAlignOkLog = 0;
@@ -257,13 +326,81 @@ static inline float wrap180f(float deg)
 /* Driver's central-4-zone average for one sensor, in metres. The driver
  * averages all four zones unconditionally, so a zone with no target drags
  * the result down (or to <=0); treat anything non-positive as invalid. */
-static float wallDist(int sensor)
+/* Original measurement: mean of that sensor's zone ranges [m], <0 if none. */
+static float wallDistZoneAvg(int sensor)
 {
   float mm = vl53l8cxToFAvg[sensor];
   if (mm <= 0.0f) {
-    return 0.0f;
+    return -1.0f;
   }
   return 0.001f * mm;
+}
+
+/* Distance from the body origin to the plane that sensor is looking at [m],
+ * from the PCA/RANSAC fit. <0 when no plane could be fitted this frame. */
+static float wallDistPlane(int sensor)
+{
+  return tofWallAngleGetPlaneDistM((uint8_t)sensor);
+}
+
+/* Distance source for one phase. */
+typedef enum {
+  WALLSRC_ZONE = 0,   /* always the 16-zone average (takeoff / landing) */
+  WALLSRC_HOVER = 1,  /* per-axis, per hoverWallSrc (hover) */
+} wallSrcMode_t;
+
+/* Resolve the four distances the control loop will use.
+ *
+ * An opposing pair is decided together and always ends up on the SAME source,
+ * so the mount-offset difference between "distance from the body origin"
+ * (plane) and "distance from the sensor" (zone average) can never leak into
+ * dFront-dBack or dLeft-dRight. */
+static void resolveWallDists(wallSrcMode_t mode,
+                             float *dFront, float *dBack,
+                             float *dLeft, float *dRight)
+{
+  float zF = wallDistZoneAvg(WALL_SENSOR_FRONT);
+  float zB = wallDistZoneAvg(WALL_SENSOR_BACK);
+  float zL = wallDistZoneAvg(WALL_SENSOR_LEFT);
+  float zR = wallDistZoneAvg(WALL_SENSOR_RIGHT);
+
+  float pF = wallDistPlane(WALL_SENSOR_FRONT);
+  float pB = wallDistPlane(WALL_SENSOR_BACK);
+  float pL = wallDistPlane(WALL_SENSOR_LEFT);
+  float pR = wallDistPlane(WALL_SENSOR_RIGHT);
+
+  /* Diagnostics: both sources every loop, plus which walls had a plane. */
+  pFrontLog = pF; pBackLog = pB; pLeftLog = pL; pRightLog = pR;
+  zFrontLog = zF; zBackLog = zB; zLeftLog = zL; zRightLog = zR;
+  planeOkLog = (uint8_t)(((pF > 0.0f) ? 1u : 0u) |
+                         ((pB > 0.0f) ? 2u : 0u) |
+                         ((pL > 0.0f) ? 4u : 0u) |
+                         ((pR > 0.0f) ? 8u : 0u));
+
+  if (mode == WALLSRC_ZONE || hoverWallSrc == 0) {
+    *dFront = zF; *dBack = zB; *dLeft = zL; *dRight = zR;
+    srcXLog = 0; srcYLog = 0;
+    return;
+  }
+
+  bool planeX = (pF > 0.0f) && (pB > 0.0f);
+  bool planeY = (pL > 0.0f) && (pR > 0.0f);
+
+  if (planeX) {
+    *dFront = pF; *dBack = pB; srcXLog = 1;
+  } else if (hoverWallSrc == 2) {
+    *dFront = -1.0f; *dBack = -1.0f; srcXLog = -1;
+  } else {
+    *dFront = zF; *dBack = zB; srcXLog = 0;
+  }
+
+  if (planeY) {
+    *dLeft = pL; *dRight = pR; srcYLog = 1;
+  } else if (hoverWallSrc == 2) {
+    *dLeft = -1.0f; *dRight = -1.0f; srcYLog = -1;
+  } else {
+    *dLeft = zL; *dRight = zR; srcYLog = 0;
+  }
 }
 
 /* Body-frame centering velocity, same shape as the lateral centering in
@@ -378,14 +515,12 @@ static void setLandDescentSetpoint(setpoint_t *setpoint, float x, float y, float
  * both phases behave identically. */
 static void applyWallCentering(setpoint_t *setpoint, float estX, float estY,
                                bool zIsVelocity, float zValue, float yawDegCmd,
+                               wallSrcMode_t srcMode,
                                float *bandHoldX, float *bandHoldY,
                                bool *inBandX, bool *inBandY)
 {
-  /* --- wall centering from the vl53l8cx central-4-zone averages --- */
-  float dFront = wallDist(WALL_SENSOR_FRONT);
-  float dBack  = wallDist(WALL_SENSOR_BACK);
-  float dLeft  = wallDist(WALL_SENSOR_LEFT);
-  float dRight = wallDist(WALL_SENSOR_RIGHT);
+  float dFront, dBack, dLeft, dRight;
+  resolveWallDists(srcMode, &dFront, &dBack, &dLeft, &dRight);
   dFrontLog = dFront; dBackLog = dBack; dLeftLog = dLeft; dRightLog = dRight;
 
   float vx, vy;
@@ -711,7 +846,9 @@ void appMain(void)
          * with a ramped height. The deadband state carries straight over
          * into HOVER, so the transition is seamless. */
         if (takeoffUsePControl) {
+          /* Takeoff: zone average only -- the plane fit is unusable this low. */
           applyWallCentering(&setpoint, estX, estY, false, a * takeoffHeight, holdYawDeg,
+                             WALLSRC_ZONE,
                              &bandHoldX, &bandHoldY, &inBandX, &inBandY);
         } else {
           setAbsSetpoint(&setpoint, takeoffX, takeoffY, a * takeoffHeight, holdYawDeg);
@@ -776,7 +913,9 @@ void appMain(void)
         yawErrDegLog = yawErr;
         yawRateDpsLog = yawRate;
 
+        /* Hover: plane per axis when both of its walls were fitted. */
         applyWallCentering(&setpoint, estX, estY, false, takeoffHeight, yawCmdDeg,
+                           WALLSRC_HOVER,
                            &bandHoldX, &bandHoldY, &inBandX, &inBandY);
         commanderSetSetpoint(&setpoint, 3);
 
@@ -807,7 +946,9 @@ void appMain(void)
              * carries over from HOVER, so the horizontal loop is not reset at
              * the transition. Yaw goes back to holdYawDeg (alignment is a
              * hover-only feature). */
+            /* Landing: zone average only, same reason as takeoff. */
             applyWallCentering(&setpoint, estX, estY, true, -landSpeed, holdYawDeg,
+                               WALLSRC_ZONE,
                                &bandHoldX, &bandHoldY, &inBandX, &inBandY);
           } else {
             setLandDescentSetpoint(&setpoint, takeoffX, takeoffY, -landSpeed, holdYawDeg);
@@ -844,6 +985,7 @@ PARAM_ADD(PARAM_FLOAT, takeoffH, &takeoffHeight)
 PARAM_ADD(PARAM_FLOAT, hoverTimeS, &hoverTimeS)
 PARAM_ADD(PARAM_FLOAT, armDwellS, &armDwellS)
 PARAM_ADD(PARAM_UINT8, tkoffPctl, &takeoffUsePControl)
+PARAM_ADD(PARAM_UINT8, hovWallSrc, &hoverWallSrc)
 PARAM_ADD(PARAM_FLOAT, kCenter, &kCenter)
 PARAM_ADD(PARAM_FLOAT, centerMaxV, &centerMaxV)
 PARAM_ADD(PARAM_FLOAT, holdBandM, &holdBandM)
@@ -886,4 +1028,15 @@ LOG_ADD(LOG_FLOAT, yawCmd, &yawCmdDegLog)
 LOG_ADD(LOG_UINT8, yawAlignOk, &yawAlignOkLog)
 LOG_ADD(LOG_FLOAT, yawErr, &yawErrDegLog)
 LOG_ADD(LOG_FLOAT, yawRate, &yawRateDpsLog)
+LOG_ADD(LOG_FLOAT, pFront, &pFrontLog)
+LOG_ADD(LOG_FLOAT, pBack, &pBackLog)
+LOG_ADD(LOG_FLOAT, pLeft, &pLeftLog)
+LOG_ADD(LOG_FLOAT, pRight, &pRightLog)
+LOG_ADD(LOG_FLOAT, zFront, &zFrontLog)
+LOG_ADD(LOG_FLOAT, zBack, &zBackLog)
+LOG_ADD(LOG_FLOAT, zLeft, &zLeftLog)
+LOG_ADD(LOG_FLOAT, zRight, &zRightLog)
+LOG_ADD(LOG_UINT8, planeOk, &planeOkLog)
+LOG_ADD(LOG_INT8, srcX, &srcXLog)
+LOG_ADD(LOG_INT8, srcY, &srcYLog)
 LOG_GROUP_STOP(chamber)

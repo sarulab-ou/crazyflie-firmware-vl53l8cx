@@ -1,25 +1,30 @@
 /*
- * app_cf_brushless_chamber_without_Pcontrol.c
+ * app_cf_brushless_chamber_takeoff_Pcontrol_wall.c
  *
- * CONTROL EXPERIMENT -- the "no P control" arm of an A/B pair with
- * app_cf_brushless_chamber.c. Everything (arming, takeoff ramp, hover
- * duration, landing, uSD logging, triggers, sensor plumbing, log/param
- * names) is IDENTICAL; the ONLY difference is what APP_HOVER commands:
+ * Variant of app_cf_brushless_chamber_takeoff_Pcontrol.c that feeds the wall
+ * centering P control with the PCA/RANSAC-fitted PLANE distance instead of the
+ * raw per-zone average.
  *
- *   app_cf_brushless_chamber.c      -> body-velocity wall centering,
- *                                      vx/vy = clamp(kCenter*(dNear-dFar), +-centerMaxV)
- *   THIS FILE                       -> no wall feedback at all. Holds the
- *                                      captured takeoff x/y as an absolute
- *                                      position setpoint, exactly as the
- *                                      takeoff phase does.
+ * The old measurement, vl53l8cxToFAvg[], is the mean of the 16 (or central 4)
+ * zone ranges of one sensor. Three things are wrong with it as a "distance to
+ * the wall":
+ *   1. Each zone measures along its own slanted ray, so the mean is longer
+ *      than the perpendicular distance, and the error grows with tilt.
+ *   2. A zone that clips the floor, the ceiling or a corner drags the mean.
+ *   3. It is measured from the SENSOR, so opposing pairs sum to
+ *      (box - sensor separation), not to the box width. Flight logs showed
+ *      front+back ~0.44 m in a 0.50 m chamber for exactly this reason.
  *
- * So the drone just stays where it took off (horizontally) for hoverTimeS
- * and then lands. The wall distances are still read and logged every loop
- * so the two runs can be compared with the same analysis script -- they are
- * simply never fed back into the setpoint. The commanded centering velocity
- * that the P-control build WOULD have produced is also computed and logged
- * (chamber.vxCmd / vyCmd) without being applied, so the counterfactual is
- * visible in the log.
+ * tofOdometryFitSensorPlane() already solves all three: it converts the 16
+ * zones into body-frame points (mount rotation and translation applied), fits
+ * a plane with RANSAC + PCA, and returns d = the perpendicular distance from
+ * the BODY ORIGIN to that plane. tof_wall_angle.c runs that fit for all six
+ * horizontal sensors on every ranging frame anyway, so this app reads the
+ * cached result through tofWallAngleGetPlaneDistM() -- no extra computation,
+ * and no touching the fitter's static point buffer from the wrong task.
+ *
+ * chamber.wallSrc selects the source so the two can be compared back to back
+ * on the same rig without a reflash.
  *
  * Standalone app-layer mission for the Crazyflie Brushless with a flow
  * deck (plus an optional vl53l8cx multizone ToF deck for logging the
@@ -37,12 +42,19 @@
  * zeroes its position at the takeoff point. So "(25,25,25) cm" is realised
  * as "0.25 m straight up from the takeoff point, holding that x/y".
  * Placing the drone at the chamber floor centre aligns the estimator frame
- * with the chamber frame. ALL phases -- takeoff, hover and landing -- hold
- * the captured takeoff x/y. Nothing here servos to an absolute (25,25);
- * there is no external reference for that. Note that this makes the hover
- * position only as good as the flow deck's estimate, which drifts with no
- * absolute reference to correct it -- measuring that drift against the wall
- * ranges is the point of this build.
+ * with the chamber frame. Landing holds the captured takeoff x/y; TAKEOFF
+ * and HOVER both servo to the middle of the box using the four wall
+ * distances (see wallCenterVel below). Nothing here servos to an absolute
+ * (25,25) -- there is no external reference for that.
+ *
+ * DIFFERENCE FROM app_cf_brushless_chamber: that app flies the takeoff ramp
+ * as a fixed-x/y absolute setpoint and only starts the wall-centering P
+ * control once HOVER begins. This variant runs the SAME centering control
+ * during the takeoff ramp as well, so the drone is being pulled towards the
+ * middle of the chamber from the moment it leaves the floor. Only the z
+ * setpoint differs between the two phases (ramped a*takeoffHeight during
+ * takeoff, constant takeoffHeight during hover). Set param
+ * `chamber.tkoffPctl` = 0 to fall back to the original fixed-x/y takeoff.
  *
  * This is app_cf_brushless_slam_tunnel.c with the forward-tunnel "advance"
  * phase replaced by a fixed-point hover; the arming/takeoff/landing/
@@ -83,7 +95,7 @@
 #include "param.h"
 #include "tof_wall_angle.h"
 
-#define DEBUG_MODULE "CHAMBER_NOP"
+#define DEBUG_MODULE "CHAMBER_BLTP"
 
 /* Per-sensor ToF distance [mm] owned by the vl53l8cx deck driver: system.c
  * fills this with the average of the central 4 zones (5, 6, 9, 10) of each
@@ -92,9 +104,8 @@
  * without going through the log table. */
 extern float vl53l8cxToFAvg[];
 
-/* NOTE: the feat#4 branch also had vl53l8cxToFAvgSub[] (average of the outer
- * 12 zones) as a fallback. It does not exist here, and all three chamber
- * builds now read the distance identically, so the fallback is gone. */
+/* Fallback average over the OTHER 12 zones of the same sensor, filled by the
+ * same loop in system.c. Used only when the central 4 returned nothing. */
 // extern float vl53l8cxToFAvgSub[];
 
 /* Sensor index map for wall centering (per user): front=s1, right=s6,
@@ -120,12 +131,47 @@ static float hoverTimeS    = 10.0f;   /* s, hover duration */
 /* Time to keep all props at idle (armed, zero thrust) before takeoff. */
 static float armDwellS = 3.0f;
 
-/* NOT APPLIED in this build -- kept so the centering command that the
- * P-control build would have issued can still be computed and logged for
- * comparison. Same values and same meaning as app_cf_brushless_chamber.c:
- * v = clamp(kCenter * (dNear - dFar), +-centerMaxV). */
-static float kCenter    = 0.5f;    /* centering gain (same as slam_tunnel) */
-static float centerMaxV = 0.05f;   /* m/s, centering command clamp (small box) */
+/* Run the wall-centering P control during the takeoff ramp as well as during
+ * hover (1, the point of this app), or fly the original fixed-x/y absolute
+ * takeoff and only start centering at hover (0). */
+static uint8_t takeoffUsePControl = 1;
+
+/* Same, for the landing descent (1 = keep centering off the walls while
+ * coming down, 0 = the original absolute return to the takeoff x/y). Landing
+ * on the wall-referenced centre avoids flying back to a takeoff point that
+ * the flow deck's estimate has drifted away from. */
+static uint8_t landUsePControl = 1;
+
+/* Wall centering during hover -- same proportional-on-difference form as
+ * the lateral centering in app_cf21_slam_tunnel.c, applied to BOTH body
+ * axes: v = clamp(kCenter * (dNear - dFar), +-centerMaxV). No target
+ * distance and no deadband: the opposing pair of walls IS the reference,
+ * so the command goes to zero exactly when the drone is centred. */
+/* Where the wall distances come from:
+ *   0 = vl53l8cxToFAvg[] zone average (the original behaviour)
+ *   1 = PCA/RANSAC plane distance, falling back to the zone average when the
+ *       plane fit fails (default)
+ *   2 = plane distance only; an axis with no plane is treated as invalid and
+ *       simply not driven. Use this to see how often the fit actually works. */
+static uint8_t wallDistSrc = 2;
+
+static float kCenter    = 0.3f;    /* centering gain (same as slam_tunnel) */
+static float centerMaxV = 0.15f;   /* m/s, centering command clamp (small box) */
+
+/* Deadband on the OPPOSING-PAIR DIFFERENCE [m]. While |dNear - dFar| is at
+ * or below this, that axis is considered centred and stops being driven:
+ * the difference is twice the offset from the centre, so 0.05 m here means
+ * "within 2.5 cm of centred". Set 0 to disable. */
+static float holdBandM = 0.05f;
+
+/* What a centred axis does inside the deadband:
+ *   0 = command zero body velocity (modeVelocity). Damps motion but has NO
+ *       restoring force, so the drone slowly drifts within the band.
+ *   1 = hold the position it had when it entered the band (modeAbs), which
+ *       gives a real restoring force but reintroduces a dependence on the
+ *       drifting flow-deck estimate for as long as it stays in the band.
+ * Per axis and independent: one axis can hold while the other still centres. */
+static uint8_t holdBandUsePos = 0;
 
 /* No-PC-link trigger: hold a hand this close (mm) over the up-facing
  * vl53l8cx sensor (s8) for this long (ms) to start the mission. */
@@ -139,6 +185,26 @@ static uint16_t handTriggerHoldMs = 500;
  * keeps the landing 1 s. landMaxTime_s stays a generous safety fallback. */
 static float landTimeS   = 1.0f;    /* s, nominal descent duration */
 static float landCutoffM = 0.04f;   /* m */
+
+/* Yaw alignment to the walls, ported from app_cf_brushless_chamber.c.
+ * tofWallAngle gives bodyDeg = the body's yaw offset from square-on to the
+ * nearest wall, in [-45,+45), 0 = perpendicular. It is a ToF-only absolute
+ * measure, so unlike the estimator's yaw it does not drift.
+ *
+ *   rate = clamp(yawKp * yawAlignSign * wallYaw, +-yawRateMaxDps)   [deg/s]
+ *   yawCmdDeg += rate * dt
+ *
+ * With yawKp = 0.2 /s that gives 25 deg -> 5 deg/s, 20 -> 4, 15 -> 3, and
+ * while |wallYaw| < yawDeadbandDeg the heading is FROZEN. yawAlignSign = -1
+ * was settled empirically on log73/log74.
+ *
+ * HOVER ONLY -- the takeoff ramp keeps holding holdYawDeg, so the yaw axis is
+ * not being moved while the height is still ramping. */
+static uint8_t yawAlignEnable = 1;
+static float yawAlignSign     = -1.0f;
+static float yawRateMaxDps    = 9.0f;   /* deg/s, hard cap on the correction rate */
+static float yawKp            = 0.2f;   /* 1/s, correction rate per deg of error */
+static float yawDeadbandDeg   = 5.0f;   /* deg, below this the setpoint is frozen */
 
 /* Yaw is held at this absolute heading for the whole mission (takeoff,
  * hover, landing). The centering above is expressed in body axes, so the
@@ -190,21 +256,32 @@ static float dRightLog = -1.0f;
 static float vxCmdLog = 0.0f;
 static float vyCmdLog = 0.0f;
 
-/* Deadband flags. This build has no deadband logic, so they stay 0 -- kept so
- * the chamber log group is identical across all the A/B builds. */
-static uint8_t holdXLog = 0;
-static uint8_t holdYLog = 0;
-
 /* Yaw alignment. NOT implemented in this build: wallYaw / yawAlignOk carry the
  * live tofWallAngle measurement (read-only, never fed back) so the wall angle
  * is still recorded for comparison, while yawCmd is simply the constant
  * heading actually being commanded and yawErr / yawRate stay 0 because no
  * correction is applied. Same names and types as app_cf_brushless_chamber.c. */
+/* Both measurements, logged side by side so the plane fit can be validated
+ * against the zone average in post-processing. pXxx = plane, zXxx = zone avg. */
+static float pFrontLog = -1.0f;
+static float pBackLog  = -1.0f;
+static float pLeftLog  = -1.0f;
+static float pRightLog = -1.0f;
+static float zFrontLog = -1.0f;
+static float zBackLog  = -1.0f;
+static float zLeftLog  = -1.0f;
+static float zRightLog = -1.0f;
+static uint8_t planeOkLog = 0;   /* bit0=front bit1=back bit2=left bit3=right */
+
 static float wallYawDegLog = 0.0f;
 static float yawCmdDegLog = 0.0f;
 static uint8_t yawAlignOkLog = 0;
 static float yawErrDegLog = 0.0f;
 static float yawRateDpsLog = 0.0f;
+
+/* 1 while that axis is inside the deadband (centred, not being driven) */
+static uint8_t holdXLog = 0;
+static uint8_t holdYLog = 0;
 
 /* ========================= Helpers ========================= */
 static inline float clampf(float x, float lo, float hi)
@@ -214,16 +291,47 @@ static inline float clampf(float x, float lo, float hi)
   return x;
 }
 
+/* Wrap an angle into [-180, 180) deg. */
+static inline float wrap180f(float deg)
+{
+  while (deg >= 180.0f) deg -= 360.0f;
+  while (deg < -180.0f) deg += 360.0f;
+  return deg;
+}
+
 /* Driver's central-4-zone average for one sensor, in metres. The driver
  * averages all four zones unconditionally, so a zone with no target drags
  * the result down (or to <=0); treat anything non-positive as invalid. */
-static float wallDist(int sensor)
+/* Original measurement: mean of that sensor's zone ranges [m], <0 if none. */
+static float wallDistZoneAvg(int sensor)
 {
   float mm = vl53l8cxToFAvg[sensor];
   if (mm <= 0.0f) {
-    return 0.0f;
+    return -1.0f;
   }
   return 0.001f * mm;
+}
+
+/* Distance from the body origin to the plane that sensor is looking at [m],
+ * from the PCA/RANSAC fit. <0 when no plane could be fitted this frame. */
+static float wallDistPlane(int sensor)
+{
+  return tofWallAngleGetPlaneDistM((uint8_t)sensor);
+}
+
+/* The distance the control loop actually uses. Returns <0 when the axis has no
+ * usable measurement -- wallCenterVel() then leaves that axis undriven, which
+ * is safer than the old behaviour of reporting 0 m (a wall in our face). */
+static float wallDist(int sensor)
+{
+  if (wallDistSrc == 0) {
+    return wallDistZoneAvg(sensor);
+  }
+  float d = wallDistPlane(sensor);
+  if (d > 0.0f) {
+    return d;
+  }
+  return (wallDistSrc == 1) ? wallDistZoneAvg(sensor) : -1.0f;
 }
 
 /* Body-frame centering velocity, same shape as the lateral centering in
@@ -235,9 +343,7 @@ static float wallDist(int sensor)
  * Unlike slam_tunnel, an invalid reading (d<0) does NOT fall back to a
  * large "no detection" distance: in a closed box that would saturate the
  * command straight into the wall opposite the dead sensor. Instead the
- * axis gets no command unless BOTH of its sensors are valid.
- *
- * In THIS build the result is logged but never commanded. */
+ * axis gets no command unless BOTH of its sensors are valid. */
 static void wallCenterVel(float dFront, float dBack, float dLeft, float dRight,
                           float gain, float maxV,
                           float *vx, float *vy)
@@ -248,11 +354,46 @@ static void wallCenterVel(float dFront, float dBack, float dLeft, float dRight,
             ? clampf(gain * (dLeft - dRight), -maxV, maxV) : 0.0f;
 }
 
-/* NOTE: app_cf_brushless_chamber.c has a setHoverVelSetpoint() here, which
- * issues the body-frame velocity command for wall centering. This build
- * never commands horizontal motion, so that helper is deliberately absent
- * (the build treats unused static functions as errors). That omission is
- * the whole difference between the two apps. */
+/* Per-axis mix of absolute position hold and body-frame velocity, with
+ * absolute height/yaw. An axis inside the deadband is flown as modeAbs to
+ * holdX/holdY; an axis still being centred is flown as modeVelocity at
+ * vxBody/vyBody.
+ *
+ * position.x/y are filled in BOTH cases on purpose: positionController()
+ * builds its body-frame setpoint as
+ *   setp_body_x = position.x*cos(yaw) + position.y*sin(yaw)
+ * so the modeAbs axis reads the other axis' position too whenever yaw != 0.
+ * Leaving the velocity-mode axis at 0 there would corrupt the held axis. */
+static void setHoverMixedSetpoint(setpoint_t *setpoint,
+                                  bool holdXAxis, bool holdYAxis,
+                                  float holdX, float holdY,
+                                  float vxBody, float vyBody,
+                                  bool zIsVelocity, float zValue, float yawDeg)
+{
+  memset(setpoint, 0, sizeof(setpoint_t));
+
+  /* zIsVelocity: zValue is a climb rate [m/s] (negative = descending), used
+   * by the landing phase. Otherwise zValue is an absolute height [m]. */
+  if (zIsVelocity) {
+    setpoint->mode.z = modeVelocity;
+    setpoint->velocity.z = zValue;
+  } else {
+    setpoint->mode.z = modeAbs;
+    setpoint->position.z = zValue;
+  }
+
+  setpoint->mode.yaw = modeAbs;
+  setpoint->attitude.yaw = yawDeg;
+
+  setpoint->position.x = holdX;
+  setpoint->position.y = holdY;
+
+  setpoint->mode.x = holdXAxis ? modeAbs : modeVelocity;
+  setpoint->mode.y = holdYAxis ? modeAbs : modeVelocity;
+  setpoint->velocity.x = holdXAxis ? 0.0f : vxBody;
+  setpoint->velocity.y = holdYAxis ? 0.0f : vyBody;
+  setpoint->velocity_body = true;
+}
 
 /* Absolute position + yaw setpoint (world/estimator frame). */
 static void setAbsSetpoint(setpoint_t *setpoint, float x, float y, float z, float yawDeg)
@@ -292,6 +433,82 @@ static void setLandDescentSetpoint(setpoint_t *setpoint, float x, float y, float
   setpoint->attitude.yaw = yawDeg;
 }
 
+/* Wall-centering P control for one loop tick, shared by TAKEOFF and HOVER.
+ *
+ * Reads the four wall distances, forms the opposing-pair velocity command,
+ * applies the deadband/hold-point bookkeeping, updates the log variables and
+ * writes the resulting setpoint. `z` is the only thing that differs between
+ * the two phases: the ramped height during takeoff, the fixed hover height
+ * afterwards. bandHoldX/Y and inBandX/Y are the caller's persistent deadband
+ * state, carried across ticks (and across the TAKEOFF -> HOVER transition).
+ *
+ * Extracted verbatim from the HOVER block of app_cf_brushless_chamber.c so
+ * both phases behave identically. */
+static void applyWallCentering(setpoint_t *setpoint, float estX, float estY,
+                               bool zIsVelocity, float zValue, float yawDegCmd,
+                               float *bandHoldX, float *bandHoldY,
+                               bool *inBandX, bool *inBandY)
+{
+  /* --- wall centering from the vl53l8cx central-4-zone averages --- */
+  float dFront = wallDist(WALL_SENSOR_FRONT);
+  float dBack  = wallDist(WALL_SENSOR_BACK);
+  float dLeft  = wallDist(WALL_SENSOR_LEFT);
+  float dRight = wallDist(WALL_SENSOR_RIGHT);
+  dFrontLog = dFront; dBackLog = dBack; dLeftLog = dLeft; dRightLog = dRight;
+
+  /* Diagnostics: keep both sources every loop, plus which axes had a plane. */
+  pFrontLog = wallDistPlane(WALL_SENSOR_FRONT);
+  pBackLog  = wallDistPlane(WALL_SENSOR_BACK);
+  pLeftLog  = wallDistPlane(WALL_SENSOR_LEFT);
+  pRightLog = wallDistPlane(WALL_SENSOR_RIGHT);
+  zFrontLog = wallDistZoneAvg(WALL_SENSOR_FRONT);
+  zBackLog  = wallDistZoneAvg(WALL_SENSOR_BACK);
+  zLeftLog  = wallDistZoneAvg(WALL_SENSOR_LEFT);
+  zRightLog = wallDistZoneAvg(WALL_SENSOR_RIGHT);
+  planeOkLog = (uint8_t)(((pFrontLog > 0.0f) ? 1u : 0u) |
+                         ((pBackLog  > 0.0f) ? 2u : 0u) |
+                         ((pLeftLog  > 0.0f) ? 4u : 0u) |
+                         ((pRightLog > 0.0f) ? 8u : 0u));
+
+  float vx, vy;
+  wallCenterVel(dFront, dBack, dLeft, dRight, kCenter, centerMaxV, &vx, &vy);
+
+  /* Deadband: an axis whose opposing-pair difference is within holdBandM
+   * counts as centred and stops being driven. An axis with a dead sensor
+   * pair is never treated as centred -- wallCenterVel() already zeroed its
+   * command, and pretending it is centred would let it latch a hold point
+   * on no evidence. */
+  bool centredX = (holdBandM > 0.0f) && (dFront >= 0.0f && dBack  >= 0.0f)
+                  && (fabsf(dFront - dBack)  <= holdBandM);
+  bool centredY = (holdBandM > 0.0f) && (dLeft  >= 0.0f && dRight >= 0.0f)
+                  && (fabsf(dLeft  - dRight) <= holdBandM);
+
+  /* Capture the hold point on the way INTO the band; while outside, keep it
+   * tracking the live estimate so it is fresh on entry. */
+  if (centredX && !*inBandX) { *bandHoldX = estX; }
+  if (!centredX)             { *bandHoldX = estX; }
+  if (centredY && !*inBandY) { *bandHoldY = estY; }
+  if (!centredY)             { *bandHoldY = estY; }
+  *inBandX = centredX;
+  *inBandY = centredY;
+
+  if (centredX) vx = 0.0f;
+  if (centredY) vy = 0.0f;
+  vxCmdLog = vx;
+  vyCmdLog = vy;
+  holdXLog = centredX ? 1 : 0;
+  holdYLog = centredY ? 1 : 0;
+
+  /* Body-velocity on the axes still being centred; the centred axes either
+   * hold position (modeAbs) or just command zero velocity, depending on
+   * holdBandUsePos. Height and yaw stay absolute. */
+  bool posHoldX = centredX && holdBandUsePos;
+  bool posHoldY = centredY && holdBandUsePos;
+  setHoverMixedSetpoint(setpoint, posHoldX, posHoldY,
+                        *bandHoldX, *bandHoldY, vx, vy,
+                        zIsVelocity, zValue, yawDegCmd);
+}
+
 void appMain(void)
 {
   static setpoint_t setpoint;
@@ -320,14 +537,21 @@ void appMain(void)
   bool handSeenStarted = false;
 
   float takeoffX = 0.0f, takeoffY = 0.0f;
+  /* Position each axis holds while inside the deadband. Captured on the way
+   * in and left alone until the axis leaves the band again. */
+  float bandHoldX = 0.0f, bandHoldY = 0.0f;
+  bool inBandX = false, inBandY = false;
+  /* Rate-limited absolute yaw setpoint, used during hover only. */
+  float yawCmdDeg = 0.0f;
+  uint32_t yawLastTick = 0;
   /* Landing returns to the captured takeoff point, not to wherever the
    * centering left us -- the chamber mission is "take off and land on the
    * same spot". */
 
-  DEBUG_PRINT("Set estimator to Kalman\n");
+  // DEBUG_PRINT("Set estimator to Kalman\n");
   paramSetInt(idEstimator, 2);
 
-  DEBUG_PRINT("Brushless chamber hover app started (NO P control)\n");
+  // DEBUG_PRINT("Brushless chamber hover app started\n");
 
   while (1) {
     vTaskDelay(M2T(loopDt_ms));
@@ -364,9 +588,9 @@ void appMain(void)
         (appState == APP_LAND);
 
     if (inFlightState && isTumbled) {
-      DEBUG_PRINT("CRASH detected (sys.isTumbled)\n");
+      // DEBUG_PRINT("CRASH detected (sys.isTumbled)\n");
       if (usdLoggingActive) {
-        DEBUG_PRINT("Stop uSD logging\n");
+        // DEBUG_PRINT("Stop uSD logging\n");
         paramSetInt(idUsdLogging, 0);
         usdLoggingActive = false;
       }
@@ -388,6 +612,8 @@ void appMain(void)
         phaseElapsedSLog = 0.0f;
         vxCmdLog = 0.0f;
         vyCmdLog = 0.0f;
+        holdXLog = 0;
+        holdYLog = 0;
 
         if (usdLoggingActive) {
           paramSetInt(idUsdLogging, 0);
@@ -402,7 +628,7 @@ void appMain(void)
             handSeenStarted = true;
             handSeenTick = xTaskGetTickCount();
           } else if ((xTaskGetTickCount() - handSeenTick) > M2T(handTriggerHoldMs)) {
-            DEBUG_PRINT("Hand-wave trigger -> starting mission\n");
+            // DEBUG_PRINT("Hand-wave trigger -> starting mission\n");
             startMission = 1;
             handSeenStarted = false;
           }
@@ -411,7 +637,7 @@ void appMain(void)
         }
 
         if (startMission) {
-          DEBUG_PRINT("Trigger received\n");
+          // DEBUG_PRINT("Trigger received\n");
           appState = APP_WAIT_FOR_DECK;
           stateStartTick = xTaskGetTickCount();
         }
@@ -433,7 +659,7 @@ void appMain(void)
             deckSeenTick = xTaskGetTickCount();
           }
           if ((xTaskGetTickCount() - deckSeenTick) > M2T(deckStableMs)) {
-            DEBUG_PRINT("Flow deck stable -> PREARM\n");
+            // DEBUG_PRINT("Flow deck stable -> PREARM\n");
             appState = APP_PREARM;
             stateStartTick = xTaskGetTickCount();
           }
@@ -452,13 +678,13 @@ void appMain(void)
           break;
         }
         if (!positioningInit) {
-          DEBUG_PRINT("Flow deck lost in PREARM\n");
+          // DEBUG_PRINT("Flow deck lost in PREARM\n");
           appState = APP_WAIT_FOR_DECK;
           break;
         }
 
         if ((xTaskGetTickCount() - stateStartTick) > M2T(prearmMs)) {
-          DEBUG_PRINT("PREARM done -> ARMING\n");
+          // DEBUG_PRINT("PREARM done -> ARMING\n");
           appState = APP_ARMING;
           stateStartTick = xTaskGetTickCount();
         }
@@ -474,20 +700,20 @@ void appMain(void)
           break;
         }
         if (!positioningInit) {
-          DEBUG_PRINT("Flow deck lost during ARMING\n");
+          // DEBUG_PRINT("Flow deck lost during ARMING\n");
           appState = APP_WAIT_FOR_DECK;
           break;
         }
 
         if (armed) {
-          DEBUG_PRINT("Armed -> ARM_DWELL (%.1fs)\n", (double)armDwellS);
+          // DEBUG_PRINT("Armed -> ARM_DWELL (%.1fs)\n", (double)armDwellS);
           appState = APP_ARM_DWELL;
           stateStartTick = xTaskGetTickCount();
           break;
         }
 
         if ((xTaskGetTickCount() - stateStartTick) > M2T(armingTimeoutMs)) {
-          DEBUG_PRINT("Arming timed out -> IDLE\n");
+          // DEBUG_PRINT("Arming timed out -> IDLE\n");
           startMission = 0;
           appState = APP_IDLE;
           stateStartTick = xTaskGetTickCount();
@@ -510,13 +736,13 @@ void appMain(void)
           break;
         }
         if (!positioningInit) {
-          DEBUG_PRINT("Flow deck lost during arm dwell\n");
+          // DEBUG_PRINT("Flow deck lost during arm dwell\n");
           supervisorRequestArming(false);
           appState = APP_WAIT_FOR_DECK;
           break;
         }
         if (!armed) {
-          DEBUG_PRINT("Disarmed during dwell -> ARMING\n");
+          // DEBUG_PRINT("Disarmed during dwell -> ARMING\n");
           appState = APP_ARMING;
           stateStartTick = xTaskGetTickCount();
           break;
@@ -526,9 +752,13 @@ void appMain(void)
         phaseElapsedSLog = t;
 
         if (t >= armDwellS) {
-          DEBUG_PRINT("Arm dwell done -> TAKEOFF\n");
+          // DEBUG_PRINT("Arm dwell done -> TAKEOFF\n");
           takeoffX = estX;
           takeoffY = estY;
+          /* Seed the deadband state before the ramp: centering now runs from
+           * the first takeoff tick, not from the start of hover. */
+          bandHoldX = takeoffX; bandHoldY = takeoffY;
+          inBandX = false; inBandY = false;
           appState = APP_TAKEOFF;
           stateStartTick = xTaskGetTickCount();
         }
@@ -542,14 +772,14 @@ void appMain(void)
           break;
         }
         if (!positioningInit) {
-          DEBUG_PRINT("Flow deck lost during takeoff -> LAND\n");
+          // DEBUG_PRINT("Flow deck lost during takeoff -> LAND\n");
           appState = APP_LAND;
           stateStartTick = xTaskGetTickCount();
           break;
         }
 
         if (!usdLoggingActive) {
-          DEBUG_PRINT("Start uSD logging\n");
+          // DEBUG_PRINT("Start uSD logging\n");
           paramSetInt(idUsdLogging, 1);
           usdLoggingActive = true;
         }
@@ -558,11 +788,26 @@ void appMain(void)
         float a = clampf(t / takeoffTime_s, 0.0f, 1.0f);
         phaseElapsedSLog = t;
 
-        setAbsSetpoint(&setpoint, takeoffX, takeoffY, a * takeoffHeight, holdYawDeg);
+        /* THE difference from app_cf_brushless_chamber: the takeoff ramp is
+         * flown with the same wall-centering P control as the hover, only
+         * with a ramped height. The deadband state carries straight over
+         * into HOVER, so the transition is seamless. */
+        if (takeoffUsePControl) {
+          applyWallCentering(&setpoint, estX, estY, false, a * takeoffHeight, holdYawDeg,
+                             &bandHoldX, &bandHoldY, &inBandX, &inBandY);
+        } else {
+          setAbsSetpoint(&setpoint, takeoffX, takeoffY, a * takeoffHeight, holdYawDeg);
+        }
         commanderSetSetpoint(&setpoint, 3);
 
         if (a >= 1.0f) {
-          DEBUG_PRINT("Takeoff complete -> HOVER %.1fs\n", (double)hoverTimeS);
+          // DEBUG_PRINT("Takeoff complete -> HOVER %.1fs\n", (double)hoverTimeS);
+          if (!takeoffUsePControl) {
+            bandHoldX = takeoffX; bandHoldY = takeoffY;
+            inBandX = false; inBandY = false;
+          }
+          yawCmdDeg = holdYawDeg;   /* start from where takeoff left us */
+          yawLastTick = xTaskGetTickCount();
           appState = APP_HOVER;
           stateStartTick = xTaskGetTickCount();
         }
@@ -576,50 +821,52 @@ void appMain(void)
           break;
         }
         if (!positioningInit) {
-          DEBUG_PRINT("Flow deck lost during hover -> LAND\n");
+          // DEBUG_PRINT("Flow deck lost during hover -> LAND\n");
           appState = APP_LAND;
           stateStartTick = xTaskGetTickCount();
           break;
         }
 
-        /* --- wall distances: read and logged, but NOT fed back --- */
-        float dFront = wallDist(WALL_SENSOR_FRONT);
-        float dBack  = wallDist(WALL_SENSOR_BACK);
-        float dLeft  = wallDist(WALL_SENSOR_LEFT);
-        float dRight = wallDist(WALL_SENSOR_RIGHT);
-        dFrontLog = dFront; dBackLog = dBack; dLeftLog = dLeft; dRightLog = dRight;
-
-        /* Counterfactual only: what the P-control build would have commanded
-         * right now. Logged so the A/B comparison can show what the centering
-         * loop was "asking for" while this build ignored it. */
-        float vx, vy;
-        wallCenterVel(dFront, dBack, dLeft, dRight, kCenter, centerMaxV, &vx, &vy);
-        vxCmdLog = vx;
-        vyCmdLog = vy;
-
-        /* THE EXPERIMENT: no horizontal motion commanded at all. Hold the
-         * captured takeoff x/y as an absolute position setpoint, exactly as
-         * APP_TAKEOFF does, so the only thing keeping the drone in place is
-         * the flow deck's position estimate. */
-        setAbsSetpoint(&setpoint, takeoffX, takeoffY, takeoffHeight, holdYawDeg);
-        commanderSetSetpoint(&setpoint, 3);
-
-
-        /* --- yaw: measured only, never applied in this build --- */
-        bool yawOk = tofWallAngleIsValid();
+        /* --- yaw: square the sensors up to the walls (hover only) --- */
+        bool yawOk = yawAlignEnable && tofWallAngleIsValid();
         float wallYawDeg = yawOk ? tofWallAngleGetBodyDeg() : 0.0f;
-        if (!isfinite(wallYawDeg)) { wallYawDeg = 0.0f; }
+
+        /* Measured loop period, so the deg/s figures are real. Clamped so a
+         * scheduling hiccup or the first pass cannot produce a jump. */
+        uint32_t nowTick = xTaskGetTickCount();
+        float dtS = (float)(nowTick - yawLastTick) / (float)configTICK_RATE_HZ;
+        yawLastTick = nowTick;
+        dtS = clampf(dtS, 0.0f, 0.2f);
+
+        float yawErr = 0.0f, yawRate = 0.0f;
+        if (yawOk && isfinite(wallYawDeg)) {
+          /* The error the loop acts on IS the wall misalignment. */
+          yawErr = yawAlignSign * wallYawDeg;
+
+          if (fabsf(wallYawDeg) >= yawDeadbandDeg) {
+            yawRate = clampf(yawKp * yawErr, -yawRateMaxDps, yawRateMaxDps);
+            yawCmdDeg = wrap180f(yawCmdDeg + yawRate * dtS);
+          }
+          /* else: within yawDeadbandDeg of square -> hold the heading exactly. */
+        } else {
+          /* No usable estimate: freeze the heading rather than snapping back. */
+          wallYawDeg = 0.0f;
+        }
         wallYawDegLog = wallYawDeg;
+        yawCmdDegLog = yawCmdDeg;
         yawAlignOkLog = yawOk ? 1 : 0;
-        yawCmdDegLog = holdYawDeg;
-        yawErrDegLog = 0.0f;
-        yawRateDpsLog = 0.0f;
+        yawErrDegLog = yawErr;
+        yawRateDpsLog = yawRate;
+
+        applyWallCentering(&setpoint, estX, estY, false, takeoffHeight, yawCmdDeg,
+                           &bandHoldX, &bandHoldY, &inBandX, &inBandY);
+        commanderSetSetpoint(&setpoint, 3);
 
         float t = (float)(xTaskGetTickCount() - stateStartTick) / (float)configTICK_RATE_HZ;
         phaseElapsedSLog = t;
 
         if (t >= hoverTimeS) {
-          DEBUG_PRINT("Hover complete -> LAND\n");
+          // DEBUG_PRINT("Hover complete -> LAND\n");
           appState = APP_LAND;
           stateStartTick = xTaskGetTickCount();
         }
@@ -636,16 +883,26 @@ void appMain(void)
            * landTimeS being written over the radio. */
           float landSpeed = (landTimeS > 0.05f) ? (takeoffHeight / landTimeS)
                                                 : (takeoffHeight / 0.05f);
-          setLandDescentSetpoint(&setpoint, takeoffX, takeoffY, -landSpeed, holdYawDeg);
+          if (landUsePControl) {
+            /* Same wall-centering P control as takeoff/hover, but with z as a
+             * descent rate instead of a held height. The deadband state
+             * carries over from HOVER, so the horizontal loop is not reset at
+             * the transition. Yaw goes back to holdYawDeg (alignment is a
+             * hover-only feature). */
+            applyWallCentering(&setpoint, estX, estY, true, -landSpeed, holdYawDeg,
+                               &bandHoldX, &bandHoldY, &inBandX, &inBandY);
+          } else {
+            setLandDescentSetpoint(&setpoint, takeoffX, takeoffY, -landSpeed, holdYawDeg);
+          }
           commanderSetSetpoint(&setpoint, 3);
         } else {
           stopSetpoint(&setpoint);
           commanderSetSetpoint(&setpoint, 3);
           supervisorRequestArming(false);
 
-          DEBUG_PRINT("Landing complete -> IDLE\n");
+          // DEBUG_PRINT("Landing complete -> IDLE\n");
           if (usdLoggingActive) {
-            DEBUG_PRINT("Stop uSD logging\n");
+            // DEBUG_PRINT("Stop uSD logging\n");
             paramSetInt(idUsdLogging, 0);
             usdLoggingActive = false;
           }
@@ -668,8 +925,18 @@ PARAM_ADD(PARAM_UINT8, start, &startMission)
 PARAM_ADD(PARAM_FLOAT, takeoffH, &takeoffHeight)
 PARAM_ADD(PARAM_FLOAT, hoverTimeS, &hoverTimeS)
 PARAM_ADD(PARAM_FLOAT, armDwellS, &armDwellS)
+PARAM_ADD(PARAM_UINT8, tkoffPctl, &takeoffUsePControl)
+PARAM_ADD(PARAM_UINT8, wallSrc, &wallDistSrc)
 PARAM_ADD(PARAM_FLOAT, kCenter, &kCenter)
 PARAM_ADD(PARAM_FLOAT, centerMaxV, &centerMaxV)
+PARAM_ADD(PARAM_FLOAT, holdBandM, &holdBandM)
+PARAM_ADD(PARAM_UINT8, holdBandPos, &holdBandUsePos)
+PARAM_ADD(PARAM_UINT8, landPCtl, &landUsePControl)
+PARAM_ADD(PARAM_UINT8, yawAlign, &yawAlignEnable)
+PARAM_ADD(PARAM_FLOAT, yawAlignSign, &yawAlignSign)
+PARAM_ADD(PARAM_FLOAT, yawRateMax, &yawRateMaxDps)
+PARAM_ADD(PARAM_FLOAT, yawKp, &yawKp)
+PARAM_ADD(PARAM_FLOAT, yawDbDeg, &yawDeadbandDeg)
 PARAM_ADD(PARAM_FLOAT, holdYawDeg, &holdYawDeg)
 PARAM_ADD(PARAM_UINT16, handMm, &handTriggerMm)
 PARAM_ADD(PARAM_UINT16, handHoldMs, &handTriggerHoldMs)
@@ -702,4 +969,13 @@ LOG_ADD(LOG_FLOAT, yawCmd, &yawCmdDegLog)
 LOG_ADD(LOG_UINT8, yawAlignOk, &yawAlignOkLog)
 LOG_ADD(LOG_FLOAT, yawErr, &yawErrDegLog)
 LOG_ADD(LOG_FLOAT, yawRate, &yawRateDpsLog)
+LOG_ADD(LOG_FLOAT, pFront, &pFrontLog)
+LOG_ADD(LOG_FLOAT, pBack, &pBackLog)
+LOG_ADD(LOG_FLOAT, pLeft, &pLeftLog)
+LOG_ADD(LOG_FLOAT, pRight, &pRightLog)
+LOG_ADD(LOG_FLOAT, zFront, &zFrontLog)
+LOG_ADD(LOG_FLOAT, zBack, &zBackLog)
+LOG_ADD(LOG_FLOAT, zLeft, &zLeftLog)
+LOG_ADD(LOG_FLOAT, zRight, &zRightLog)
+LOG_ADD(LOG_UINT8, planeOk, &planeOkLog)
 LOG_GROUP_STOP(chamber)

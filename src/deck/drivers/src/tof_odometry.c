@@ -27,12 +27,13 @@
 /* ---- 平面抽出パラメータ ---- */
 #define RANSAC_ITERS     60
 #define RANSAC_THRESH_MM 20.0f
-#define MIN_INLIERS      6
+#define MIN_INLIERS      10
 /* 0.02 は log44 (50cm立方体) では緩すぎ、ほぼ何も弾いていなかった。
  * 精度優先で 6e-3 とする。log44 では 1フレームの有効センサーが median 4
  * まで減り、265フレーム中 22フレームで Δt がランク落ちする (rankT<3)。
  * 退化フレームは truncated SVD 側で該当軸が 0 になるので発散はしない。 */
-#define PLANARITY_EPS    0.006f
+#define PLANARITY_EPS    0.01f
+// #define PLANARITY_EPS    0.006f
 
 /* ---- 移動量推定の打ち切り閾値 (python の rcond) ---- */
 #define TRANS_RCOND 0.05f
@@ -139,8 +140,19 @@ static uint8_t s_logRotSrc = TOFODO_ROT_NONE;
 static uint32_t s_logSeq = 0;   /* 処理したフレーム数 */
 static uint32_t s_logCalcUs = 0;/* 1フレームの計算時間 [us] */
 
-/* 推定を止めたいときのパラメータ (既定=有効)。 */
-static uint8_t s_enable = 1;
+/* 推定を止めたいときのパラメータ。
+ *
+ * 既定=無効。オドメトリと tof_wall_angle.c はどちらも1フレームあたり6面の
+ * PCA+RANSAC 平面フィットを行うため、両方走らせると測距1フレームあたりの
+ * 計算量が倍になる。壁角推定だけが必要な用途 (chamber の yaw 補正など) では
+ * ここを 0 のままにしておけば tofOdometryUpdate() は即 return し、
+ * tofWallAngleUpdate() の分だけで済む。
+ *
+ * tofOdometryFitSensorPlane() はこのフラグとは独立に動くので、0 でも
+ * tof_wall_angle.c は問題なく平面を取れる。オドメトリが必要になったら
+ * cfclient から tofodo.enable = 1 を書けば再ビルド無しで有効になる
+ * (log グループ tofodo.* は無効の間そのまま凍結する)。 */
+static uint8_t s_enable = 0;
 
 /**
  * ジャイロ整合チェックの閾値 [deg]。

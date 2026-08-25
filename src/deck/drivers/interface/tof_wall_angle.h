@@ -58,6 +58,14 @@ typedef struct
     /** そのセンサーで平面が取れ、かつ融合に採用されたか。 */
     bool sensorValid[TOFODO_NUM_SENSORS];
     bool sensorUsed[TOFODO_NUM_SENSORS];
+    /** そのセンサーが捉えた平面までの垂直距離 [mm]。ボディ原点からの距離
+     *  なので取り付けオフセットは含まない。無効なら NaN。
+     *  ゾーン平均と違い、(1) 斜めに当たった光線の長さではなく平面までの
+     *  最短距離、(2) RANSAC で外れゾーンを除去済み、(3) 全センサーが共通の
+     *  ボディ原点基準なので対向ペアの和がそのまま部屋の幅になる。 */
+    float sensorPlaneDistMm[TOFODO_NUM_SENSORS];
+    /** そのセンサーの平面フィットが成功したか (壁/床天井を問わない)。 */
+    bool sensorPlaneOk[TOFODO_NUM_SENSORS];
 } tofWallAngle_t;
 
 /** 内部状態 (平滑化フィルタ) を初期化する。 */
@@ -74,3 +82,15 @@ float tofWallAngleGetBodyDeg(void);
 
 /** 平滑化後の推定が使える状態か (集中度が閾値以上で、直近に更新がある)。 */
 bool tofWallAngleIsValid(void);
+
+/**
+ * 物理センサー番号 (0..10) が捉えた平面までの垂直距離 [m]。
+ *
+ * tofWallAngleUpdate() が毎フレーム行っている PCA+RANSAC の結果を再利用する
+ * だけなので追加の計算は発生しない。平面が取れていない場合や、そのセンサーが
+ * オドメトリ対象 (TOFODO_SENSORS[]) に含まれない場合は負値を返す。
+ *
+ * tofOdometryFitSensorPlane() を直接呼ぶのと違い、内部の static 点群バッファに
+ * 触れないので任意のタスクから安全に読める。
+ */
+float tofWallAngleGetPlaneDistM(uint8_t sensor);

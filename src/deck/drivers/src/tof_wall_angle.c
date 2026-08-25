@@ -34,7 +34,7 @@
 /* sensor0 と sensor2 が別々の壁を見ていると判定する角度差 [deg]。
  * 斜め 22.5 度を向いた 0/2 は狭いチャンバーでは隣接2面の角に差し掛かりやすく、
  * 実測 (log54/57/58) では 13〜35% のフレームで発生した。 */
-#define CONFLICT_DEG   30.0f
+#define CONFLICT_DEG   10.0f
 /* 2つの面を「同じ壁」とみなす角度差 [deg]。 */
 #define SAME_PLANE_DEG 10.0f
 
@@ -317,12 +317,19 @@ void tofWallAngleUpdate(void)
         s_res.sensorAzimuthDeg[si] = NANF;
         s_res.sensorValid[si] = false;
         s_res.sensorUsed[si] = false;
+        s_res.sensorPlaneDistMm[si] = NANF;
+        s_res.sensorPlaneOk[si] = false;
 
         float n[3], d, planarity;
         if (!tofOdometryFitSensorPlane(si, n, &d, &planarity))
         {
             continue;
         }
+        /* 方位角として使えるかとは独立に、平面までの距離は保存しておく
+         * (壁センタリングの制御が読む)。 */
+        s_res.sensorPlaneDistMm[si] = d;
+        s_res.sensorPlaneOk[si] = true;
+
         if (fabsf(n[2]) > NZ_MAX)
         {
             continue; /* 天井/床の平面は方位角を持たない */
@@ -419,6 +426,28 @@ float tofWallAngleGetBodyDeg(void)
 bool tofWallAngleIsValid(void)
 {
     return s_emaOk;
+}
+
+float tofWallAngleGetPlaneDistM(uint8_t sensor)
+{
+    for (int si = 0; si < TOFODO_NUM_SENSORS; si++)
+    {
+        if (tofOdometryGetSensorId(si) != sensor)
+        {
+            continue;
+        }
+        if (!s_res.sensorPlaneOk[si])
+        {
+            return -1.0f;
+        }
+        float mm = s_res.sensorPlaneDistMm[si];
+        if (!(mm > 0.0f))
+        {
+            return -1.0f;
+        }
+        return 0.001f * mm;
+    }
+    return -1.0f; /* オドメトリ対象外のセンサー */
 }
 
 /* ============================================================

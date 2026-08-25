@@ -85,7 +85,7 @@ static void vl53l8cxTask(void* arg)
             tofWallAngleUpdate();
 #endif
         }
-        vTaskDelay(pdMS_TO_TICKS(20)); // poll at 50Hz, ranging arrives at 5Hz
+        vTaskDelay(pdMS_TO_TICKS(50)); // poll at 20Hz, ranging arrives at 5Hz
     }
     vTaskDelete(NULL);
 }

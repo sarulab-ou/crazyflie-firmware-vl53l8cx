@@ -1,10 +1,10 @@
-1     # version
-2048   # buffer size in bytes
-log   # file name
-0     # enable on startup (0/1)
+1      # version
+4096   # buffer size in bytes
+log    # file name
+0      # enable on startup (0/1) -- the app turns usd.logging on at takeoff
 on:fixedFrequency
 50     # frequency
-1     # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
+1      # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
 vl53l8cx.s0
 vl53l8cx.s1
 vl53l8cx.s2
@@ -15,10 +15,33 @@ vl53l8cx.s6
 vl53l8cx.s7
 vl53l8cx.s8
 on:pose
+# --- mission state ---
 chamber.state
+chamber.phaseElapsedS
+# --- pose (flow-deck estimate, drifts) ---
 stateEstimate.x
 stateEstimate.y
 stateEstimate.z
 stabilizer.roll
 stabilizer.pitch
 stabilizer.yaw
+# --- what the centering loop actually saw and commanded ---
+chamber.dFront
+chamber.dBack
+chamber.dLeft
+chamber.dRight
+chamber.vxCmd
+chamber.vyCmd
+chamber.holdX
+chamber.holdY
+# --- yaw alignment to the walls ---
+chamber.wallYaw
+chamber.yawCmd
+chamber.yawAlignOk
+tofwall.angle
+tofwall.angleFilt
+tofwall.conf
+tofwall.nUsed
+tofwall.nPlanes
+tofwall.usedMask
+tofwall.conflict

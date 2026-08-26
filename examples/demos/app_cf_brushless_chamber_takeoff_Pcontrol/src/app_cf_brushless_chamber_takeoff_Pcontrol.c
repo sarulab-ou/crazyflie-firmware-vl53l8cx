@@ -167,7 +167,7 @@ static float landCutoffM = 0.04f;   /* m */
  *
  * HOVER ONLY -- the takeoff ramp keeps holding holdYawDeg, so the yaw axis is
  * not being moved while the height is still ramping. */
-static uint8_t yawAlignEnable = 1;
+static uint8_t yawAlignEnable = 0;
 static float yawAlignSign     = -1.0f;
 static float yawRateMaxDps    = 9.0f;   /* deg/s, hard cap on the correction rate */
 static float yawKp            = 0.2f;   /* 1/s, correction rate per deg of error */

@@ -102,8 +102,8 @@ static float armDwellS = 3.0f;
  * axes: v = clamp(kCenter * (dNear - dFar), +-centerMaxV). No target
  * distance and no deadband: the opposing pair of walls IS the reference,
  * so the command goes to zero exactly when the drone is centred. */
-static float kCenter    = 0.7f;    /* centering gain (same as slam_tunnel) */
-static float centerMaxV = 0.05f;   /* m/s, centering command clamp (small box) */
+static float kCenter    = 0.3f;    /* centering gain (same as slam_tunnel) */
+static float centerMaxV = 0.15f;   /* m/s, centering command clamp (small box) */
 
 /* Deadband on the OPPOSING-PAIR DIFFERENCE [m]. While |dNear - dFar| is at
  * or below this, that axis is considered centred and stops being driven:
@@ -175,7 +175,7 @@ static float landCutoffM = 0.04f;   /* m */
  * nominal 5 deg/s come out as ~3 deg/s.
  *
  * Only APP_HOVER aligns; takeoff and landing keep holding holdYawDeg. */
-static uint8_t yawAlignEnable = 1;
+static uint8_t yawAlignEnable = 0;
 static float yawAlignSign     = -1.0f;
 static float yawRateMaxDps    = 9.0f;   /* deg/s, hard cap on the correction rate */
 static float yawKp            = 0.2f;   /* 1/s, correction rate per deg of error */

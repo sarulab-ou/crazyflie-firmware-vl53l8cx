@@ -124,8 +124,8 @@ static float armDwellS = 3.0f;
  * P-control build would have issued can still be computed and logged for
  * comparison. Same values and same meaning as app_cf_brushless_chamber.c:
  * v = clamp(kCenter * (dNear - dFar), +-centerMaxV). */
-static float kCenter    = 0.5f;    /* centering gain (same as slam_tunnel) */
-static float centerMaxV = 0.05f;   /* m/s, centering command clamp (small box) */
+static float kCenter    = 0.3f;    /* centering gain (same as slam_tunnel) */
+static float centerMaxV = 0.15f;   /* m/s, centering command clamp (small box) */
 
 /* No-PC-link trigger: hold a hand this close (mm) over the up-facing
  * vl53l8cx sensor (s8) for this long (ms) to start the mission. */
@@ -200,6 +200,23 @@ static uint8_t holdYLog = 0;
  * is still recorded for comparison, while yawCmd is simply the constant
  * heading actually being commanded and yawErr / yawRate stay 0 because no
  * correction is applied. Same names and types as app_cf_brushless_chamber.c. */
+/* Wall measurements, recorded but never fed back (same names/types as the
+ * takeoff_Pcontrol_wall / _hybrid builds). p* = plane fit, z* = zone average. */
+static float pFrontLog = -1.0f;
+static float pBackLog  = -1.0f;
+static float pLeftLog  = -1.0f;
+static float pRightLog = -1.0f;
+static float zFrontLog = -1.0f;
+static float zBackLog  = -1.0f;
+static float zLeftLog  = -1.0f;
+static float zRightLog = -1.0f;
+static uint8_t planeOkLog = 0;   /* bit0=front bit1=back bit2=left bit3=right */
+/* This build selects no distance source at all (it never centers off the
+ * walls). -2 marks that, and is distinct from the _hybrid meanings
+ * (1 = plane, 0 = zone average, -1 = axis left undriven). */
+static int8_t srcXLog = -2;
+static int8_t srcYLog = -2;
+
 static float wallYawDegLog = 0.0f;
 static float yawCmdDegLog = 0.0f;
 static uint8_t yawAlignOkLog = 0;
@@ -217,6 +234,22 @@ static inline float clampf(float x, float lo, float hi)
 /* Driver's central-4-zone average for one sensor, in metres. The driver
  * averages all four zones unconditionally, so a zone with no target drags
  * the result down (or to <=0); treat anything non-positive as invalid. */
+/* Zone average [m] (the 16-zone mean the driver keeps), <0 if unavailable. */
+static float wallDistZoneAvg(int sensor)
+{
+  float mm = vl53l8cxToFAvg[sensor];
+  return (mm > 0.0f) ? (0.001f * mm) : -1.0f;
+}
+
+/* Distance from the BODY ORIGIN to the PCA/RANSAC-fitted plane [m], <0 if the
+ * fit failed this frame. Read-only here: this build never uses the walls for
+ * control, but recording it keeps the measurement environment identical to
+ * the takeoff_Pcontrol_* builds so the runs can be compared directly. */
+static float wallDistPlane(int sensor)
+{
+  return tofWallAngleGetPlaneDistM((uint8_t)sensor);
+}
+
 static float wallDist(int sensor)
 {
   float mm = vl53l8cxToFAvg[sensor];
@@ -605,7 +638,21 @@ void appMain(void)
         commanderSetSetpoint(&setpoint, 3);
 
 
-        /* --- yaw: measured only, never applied in this build --- */
+            /* --- wall distances: measured only, never applied in this build --- */
+        pFrontLog = wallDistPlane(WALL_SENSOR_FRONT);
+        pBackLog  = wallDistPlane(WALL_SENSOR_BACK);
+        pLeftLog  = wallDistPlane(WALL_SENSOR_LEFT);
+        pRightLog = wallDistPlane(WALL_SENSOR_RIGHT);
+        zFrontLog = wallDistZoneAvg(WALL_SENSOR_FRONT);
+        zBackLog  = wallDistZoneAvg(WALL_SENSOR_BACK);
+        zLeftLog  = wallDistZoneAvg(WALL_SENSOR_LEFT);
+        zRightLog = wallDistZoneAvg(WALL_SENSOR_RIGHT);
+        planeOkLog = (uint8_t)(((pFrontLog > 0.0f) ? 1u : 0u) |
+                               ((pBackLog  > 0.0f) ? 2u : 0u) |
+                               ((pLeftLog  > 0.0f) ? 4u : 0u) |
+                               ((pRightLog > 0.0f) ? 8u : 0u));
+
+    /* --- yaw: measured only, never applied in this build --- */
         bool yawOk = tofWallAngleIsValid();
         float wallYawDeg = yawOk ? tofWallAngleGetBodyDeg() : 0.0f;
         if (!isfinite(wallYawDeg)) { wallYawDeg = 0.0f; }
@@ -702,4 +749,15 @@ LOG_ADD(LOG_FLOAT, yawCmd, &yawCmdDegLog)
 LOG_ADD(LOG_UINT8, yawAlignOk, &yawAlignOkLog)
 LOG_ADD(LOG_FLOAT, yawErr, &yawErrDegLog)
 LOG_ADD(LOG_FLOAT, yawRate, &yawRateDpsLog)
+LOG_ADD(LOG_FLOAT, pFront, &pFrontLog)
+LOG_ADD(LOG_FLOAT, pBack, &pBackLog)
+LOG_ADD(LOG_FLOAT, pLeft, &pLeftLog)
+LOG_ADD(LOG_FLOAT, pRight, &pRightLog)
+LOG_ADD(LOG_FLOAT, zFront, &zFrontLog)
+LOG_ADD(LOG_FLOAT, zBack, &zBackLog)
+LOG_ADD(LOG_FLOAT, zLeft, &zLeftLog)
+LOG_ADD(LOG_FLOAT, zRight, &zRightLog)
+LOG_ADD(LOG_UINT8, planeOk, &planeOkLog)
+LOG_ADD(LOG_INT8, srcX, &srcXLog)
+LOG_ADD(LOG_INT8, srcY, &srcYLog)
 LOG_GROUP_STOP(chamber)

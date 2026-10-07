@@ -79,6 +79,7 @@ bool lighthouseDeckFlasherCheckVersionAndBoot() {
   lhblFlashRead(LH_FW_ADDR, VERSION_STRING_MAX_LENGTH, (uint8_t*)deckBitstream);
   deckBitstream[VERSION_STRING_MAX_LENGTH] = 0;
   int deckVersion = strtol(&deckBitstream[2], NULL, 10);
+  (void)deckVersion;  // Only used by DEBUG_PRINT, which is compiled out in this configuration
 
   // Checking that the bitstream has the right checksum
   crc32Context_t crcContext;

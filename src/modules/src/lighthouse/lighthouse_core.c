@@ -129,6 +129,21 @@ static uint32_t nextUpdateTimeOfSystemStatus = 0;
 static uint16_t pulseWidth[PULSE_PROCESSOR_N_SENSORS];
 pulseProcessor_t lighthouseCoreState;
 
+// Book keeping for the raw sweep angle logging, see feat#7.md. The position is not calculated on
+// board, it is calculated offline from the angles recorded to the microSD card. These variables tell
+// the offline analysis which of the logged angles that are fresh, since the angles themselves are
+// never cleared (pulseProcessorProcessed() only resets validCount).
+//
+// Note: lighthouse.validAngles can not be used for this, pulseProcessorV2AnglesQuality() is not
+// implemented and always returns 0.
+
+// Incremented (wrapping) every time the angles of a base station are updated
+static uint8_t lhBsUpdCount[CONFIG_DECK_LIGHTHOUSE_MAX_N_BS];
+// Bit field of the sensors that had a complete set of sweeps in the latest update of a base station
+static uint8_t lhBsSensorMask[CONFIG_DECK_LIGHTHOUSE_MAX_N_BS];
+// Number of base stations that angles are received from
+static uint8_t lhNumBsReceived;
+
 static lighthouseBaseStationType_t systemType = lighthouseBsTypeV2;
 static lighthouseBaseStationType_t previousSystemType = lighthouseBsTypeV2;
 static pulseProcessorProcessPulse_t pulseProcessorProcessPulse = pulseProcessorV2ProcessPulse;
@@ -331,8 +346,11 @@ bool findOtherBaseStation(const pulseProcessorResult_t* angles, const int baseSt
 //     estimator as pre-calculated.
 // 1 = Sweep angles pushed into the estimator. Yaw error calculated outside the estimator
 //     and pushed to the estimator as a pre-calculated value.
+// 2 = No position or yaw estimation is done on board. The sweep angles are decoded and calibrated
+//     only, and are expected to be recorded (to a microSD card) for offline analysis. Nothing is
+//     pushed to the estimator. See feat#7.md.
 #ifdef CONFIG_DECK_LIGHTHOUSE_AS_GROUNDTRUTH
-static uint8_t estimationMethod = 0;
+static uint8_t estimationMethod = 2;
 #else
 static uint8_t estimationMethod = 1;
 #endif
@@ -379,6 +397,28 @@ static void usePulseResultSweeps(pulseProcessor_t *appState, pulseProcessorResul
   pulseProcessorProcessed(angles, baseStation);
 }
 
+// Used when no position estimation is done on board (estimationMethod 2). The pulse processor state
+// still has to be maintained, usePulseResultCrossingBeams()/usePulseResultSweeps() would normally do
+// this. Without it validCount is never reset and the sensor mask below stops being meaningful.
+static void usePulseResultAnglesOnly(pulseProcessor_t *appState, pulseProcessorResult_t* angles, int baseStation) {
+  pulseProcessorClearOutdated(appState, angles, baseStation);
+  pulseProcessorProcessed(angles, baseStation);
+}
+
+// Record which sensors that contributed to the latest angle update of a base station, and bump the
+// update counter. Must be called before the validCount is reset by pulseProcessorProcessed().
+static void updateAngleLogInfo(const pulseProcessorResult_t* angles, const int baseStation) {
+  uint8_t sensorMask = 0;
+  for (int sensor = 0; sensor < PULSE_PROCESSOR_N_SENSORS; sensor++) {
+    if (PULSE_PROCESSOR_N_SWEEPS == angles->baseStationMeasurementsLh1[baseStation].sensorMeasurements[sensor].validCount) {
+      sensorMask |= (1 << sensor);
+    }
+  }
+
+  lhBsSensorMask[baseStation] = sensorMask;
+  lhBsUpdCount[baseStation]++;
+}
+
 static void convertV2AnglesToV1Angles(pulseProcessorResult_t* angles) {
   for (int sensor = 0; sensor < PULSE_PROCESSOR_N_SENSORS; sensor++) {
     for (int bs = 0; bs < CONFIG_DECK_LIGHTHOUSE_MAX_N_BS; bs++) {
@@ -409,6 +449,15 @@ static void usePulseResult(pulseProcessor_t *appState, pulseProcessorResult_t* a
 
       // Send measurement to the ground
       locSrvSendLighthouseAngle(baseStation, angles, now_ms);
+
+      updateAngleLogInfo(angles, baseStation);
+
+      if (2 == estimationMethod) {
+        // No position estimation on board. This is done here rather than in the switch below since
+        // that one is only reached when there is geometry data, which is not needed when the
+        // position is calculated offline.
+        usePulseResultAnglesOnly(appState, angles, baseStation);
+      }
 
       const bool hasGeoData = appState->bsGeometry[baseStation].valid;
       if (hasGeoData) {
@@ -517,6 +566,7 @@ static void updateSystemStatus(const uint32_t now_ms) {
 
     baseStationReceivedMap = baseStationReceivedMapWs;
     baseStationReceivedMapWs = 0;
+    lhNumBsReceived = __builtin_popcount(baseStationReceivedMap);
 
     baseStationActiveMap = baseStationActiveMapWs;
     baseStationActiveMapWs = 0;
@@ -652,110 +702,55 @@ LOG_ADD(LOG_FLOAT, rawAngle1x, &angles.baseStationMeasurementsLh1[1].sensorMeasu
 LOG_ADD(LOG_FLOAT, rawAngle1y, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[0].angles[1])
 
 /**
- * @brief The V1 angle received by sensor 0, corrected using calibration data [rad]
+ * @brief The angles received by the sensors, corrected using calibration data [rad]
  *
- * | Base station type | V1 |\n
- * | Base station | primary |\n
- * | Sweep | 1 |\n
- * | Sensor | 0 |\n\n
+ * Naming: angle<base station><sweep>_<sensor>, where sweep is 'x' (sweep 1) or 'y' (sweep 2).
  *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 1.
+ * The base station index is the channel of the base station, zero indexed (channel 1 -> 0).
+ *
+ * If a base station of type V2 is used, these contain the V2 angles converted to V1 style.
+ *
+ * These are the raw measurements that feat#7 records to the microSD card, the position is
+ * calculated offline from them. Use lighthouse.upd<base station> and lighthouse.mask<base station>
+ * to tell fresh angles from stale ones, the angles themselves are never cleared.
+ */
+#define LOG_ADD_LH_ANGLES(BS, SENSOR) \
+  LOG_ADD(LOG_FLOAT, angle##BS##x_##SENSOR, &angles.baseStationMeasurementsLh1[BS].sensorMeasurements[SENSOR].correctedAngles[0]) \
+  LOG_ADD(LOG_FLOAT, angle##BS##y_##SENSOR, &angles.baseStationMeasurementsLh1[BS].sensorMeasurements[SENSOR].correctedAngles[1])
+
+LOG_ADD_LH_ANGLES(0, 0)
+LOG_ADD_LH_ANGLES(0, 1)
+LOG_ADD_LH_ANGLES(0, 2)
+LOG_ADD_LH_ANGLES(0, 3)
+
+LOG_ADD_LH_ANGLES(1, 0)
+LOG_ADD_LH_ANGLES(1, 1)
+LOG_ADD_LH_ANGLES(1, 2)
+LOG_ADD_LH_ANGLES(1, 3)
+
+#if CONFIG_DECK_LIGHTHOUSE_MAX_N_BS > 2
+LOG_ADD_LH_ANGLES(2, 0)
+LOG_ADD_LH_ANGLES(2, 1)
+LOG_ADD_LH_ANGLES(2, 2)
+LOG_ADD_LH_ANGLES(2, 3)
+#endif
+
+#if CONFIG_DECK_LIGHTHOUSE_MAX_N_BS > 3
+LOG_ADD_LH_ANGLES(3, 0)
+LOG_ADD_LH_ANGLES(3, 1)
+LOG_ADD_LH_ANGLES(3, 2)
+LOG_ADD_LH_ANGLES(3, 3)
+#endif
+
+/**
+ * @brief Legacy names for the angles of sensor 0, kept for backwards compatibility
+ *
+ * Same data as angle0x_0, angle0y_0, angle1x_0 and angle1y_0.
  */
 LOG_ADD(LOG_FLOAT, angle0x, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[0].correctedAngles[0])
-
-/**
- * @brief The V1 angle received by sensor 0, corrected using calibration data [rad]
- *
- * | Base station type | V1 |\n
- * | Base station | primary |\n
- * | Sweep | 2 |\n
- * | Sensor | 0 |\n\n
- *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 1.
- */
 LOG_ADD(LOG_FLOAT, angle0y, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[0].correctedAngles[1])
-
-/**
- * @brief The angle received by sensor 0, corrected using calibration data [rad]
- *
- * | Base station type | V1 |\n
- * | Base station | secondary |\n
- * | Sweep | 1 |\n
- * | Sensor | 0 |\n\n
- *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 2.
- */
 LOG_ADD(LOG_FLOAT, angle1x, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[0].correctedAngles[0])
-
-/**
- * @brief The angle received by sensor 0, corrected using calibration data [rad]
- *
- * | Base station type | V1 |\n
- * | Base station | secondary |\n
- * | Sweep | 2 |\n
- * | Sensor | 0 |\n\n
- *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 2.
- */
 LOG_ADD(LOG_FLOAT, angle1y, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[0].correctedAngles[1])
-
-/**
- * @brief The angle received by sensor 1, corrected using calibration data [rad]
- *
- * | Base station type | V1 |\n
- * | Base station | primary |\n
- * | Sweep | 1 |\n
- * | Sensor | 1 |\n\n
- *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 1.
- */
-LOG_ADD_DEBUG(LOG_FLOAT, angle0x_1, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[1].correctedAngles[0])
-
-/**
- * @brief The V1 angle received by sensor 1, corrected using calibration data [rad]
- *
- * | Base station type | V1 |\n
- * | Base station | primary |\n
- * | Sweep | 2 |\n
- * | Sensor | 1 |\n\n
- *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 1.
- */
-LOG_ADD_DEBUG(LOG_FLOAT, angle0y_1, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[1].correctedAngles[1])
-
-/**
- * @brief The V1 angle received by sensor 1, corrected using calibration data [rad]
- *
- * | Base station type | V1 |\n
- * | Base station | secondary |\n
- * | Sweep | 1 |\n
- * | Sensor | 1 |\n\n
- *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 2.
- */
-LOG_ADD_DEBUG(LOG_FLOAT, angle1x_1, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[1].correctedAngles[0])
-
-/**
- * @brief The V1 angle received by sensor 1, corrected using calibration data [rad]
- *
- * | Base station type | V1 |\n
- * | Base station | secondary |\n
- * | Sweep | 2 |\n
- * | Sensor | 1 |\n\n
- *
- * If a base station of type V2 is used, this will contain the V2 angles converted to V1 style for the base station with channel 2.
- */
-LOG_ADD_DEBUG(LOG_FLOAT, angle1y_1, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[1].correctedAngles[1])
-
-LOG_ADD_DEBUG(LOG_FLOAT, angle0x_2, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[2].correctedAngles[0])
-LOG_ADD_DEBUG(LOG_FLOAT, angle0y_2, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[2].correctedAngles[1])
-LOG_ADD_DEBUG(LOG_FLOAT, angle1x_2, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[2].correctedAngles[0])
-LOG_ADD_DEBUG(LOG_FLOAT, angle1y_2, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[2].correctedAngles[1])
-
-LOG_ADD_DEBUG(LOG_FLOAT, angle0x_3, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[3].correctedAngles[0])
-LOG_ADD_DEBUG(LOG_FLOAT, angle0y_3, &angles.baseStationMeasurementsLh1[0].sensorMeasurements[3].correctedAngles[1])
-LOG_ADD_DEBUG(LOG_FLOAT, angle1x_3, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[3].correctedAngles[0])
-LOG_ADD_DEBUG(LOG_FLOAT, angle1y_3, &angles.baseStationMeasurementsLh1[1].sensorMeasurements[3].correctedAngles[1])
 
 /**
  * @brief The raw V2 angle received by sensor 0 [rad]
@@ -910,6 +905,46 @@ LOG_ADD_CORE(LOG_UINT16, bsCalCon, &baseStationCalibConfirmedMap)
  *
  */
 LOG_ADD_CORE(LOG_UINT8, status, &systemStatus)
+
+/**
+ * @brief Number of base stations that angles are received from
+ *
+ * Popcount of bsReceive. Note that this counts base stations that angles are decoded from, it does
+ * not require geometry data to be present on the Crazyflie since the position is calculated offline
+ * (feat#7).
+ */
+LOG_ADD(LOG_UINT8, nBs, &lhNumBsReceived)
+
+/**
+ * @brief Update counter for the angles of a base station
+ *
+ * Incremented (and wrapping at 255) every time the angles of the base station are updated. Two
+ * consecutive log samples with the same value contain the same, stale, angles. Used by the offline
+ * analysis to discard duplicated and stale samples.
+ */
+LOG_ADD(LOG_UINT8, upd0, &lhBsUpdCount[0])
+LOG_ADD(LOG_UINT8, upd1, &lhBsUpdCount[1])
+#if CONFIG_DECK_LIGHTHOUSE_MAX_N_BS > 2
+LOG_ADD(LOG_UINT8, upd2, &lhBsUpdCount[2])
+#endif
+#if CONFIG_DECK_LIGHTHOUSE_MAX_N_BS > 3
+LOG_ADD(LOG_UINT8, upd3, &lhBsUpdCount[3])
+#endif
+
+/**
+ * @brief Bit field of the sensors that had a complete set of sweeps in the latest angle update
+ *
+ * Bit 0 maps to sensor 0. The angles of a sensor that is not set in this field are stale and must
+ * not be used by the offline analysis.
+ */
+LOG_ADD(LOG_UINT8, mask0, &lhBsSensorMask[0])
+LOG_ADD(LOG_UINT8, mask1, &lhBsSensorMask[1])
+#if CONFIG_DECK_LIGHTHOUSE_MAX_N_BS > 2
+LOG_ADD(LOG_UINT8, mask2, &lhBsSensorMask[2])
+#endif
+#if CONFIG_DECK_LIGHTHOUSE_MAX_N_BS > 3
+LOG_ADD(LOG_UINT8, mask3, &lhBsSensorMask[3])
+#endif
 LOG_GROUP_STOP(lighthouse)
 
 /**

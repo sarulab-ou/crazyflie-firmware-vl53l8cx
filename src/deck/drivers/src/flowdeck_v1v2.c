@@ -259,7 +259,7 @@ static bool flowdeck2Test()
   ledClearAll();
   if (!isInit2) {
     led_debug(1000, 10, LED_BLUE_L);
-    DEBUG_PRINT("Error while initializing the PMW3901 sensor\n");
+    // DEBUG_PRINT("Error while initializing the PMW3901 sensor\n");
     return false;
   }
 

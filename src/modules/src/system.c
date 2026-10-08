@@ -86,6 +86,33 @@
 #include "crtp_commander_high_level.h"
 #include "supervisor.h"
 
+/* ===================== Bench thrust test (flightTask) =====================
+ * Spins ALL FOUR props at one fixed thrust command, for measuring the thrust
+ * actually produced (e.g. on a scale) at the value seen in flight.
+ *
+ * SAFETY -- read before enabling:
+ *   - This is a TETHERED BENCH TEST, not a flight. BENCH_THRUST is the hover
+ *     value, so an unrestrained drone WILL take off and fly away uncontrolled
+ *     (no attitude stabilisation is applied here). Bolt/clamp the frame down.
+ *   - The motorPowerSet override lives inside motorsSetRatio(), so it replaces
+ *     whatever the stabilizer wrote -- INCLUDING the zeros from motorsStop().
+ *     While it is active the supervisor can no longer stop the motors: a
+ *     tumble, a low battery or a disarm will NOT cut them. The only stops are
+ *     the timeout below, a power cut, and the watchdog.
+ *   - Remove the propellers if you are only checking the electrical side.
+ *
+ * Thrust command (in motor units) -- same scale as stabilizer.thrust. */
+#define MIN_THRUST  0
+#define MAX_THRUST  60000
+
+/* Hover value measured in log00 (chamber.thrust averaged over HOVER). */
+#define BENCH_THRUST        44293
+
+#define BENCH_START_DELAY_MS 10000  /* hands-clear pause before anything spins */
+#define BENCH_RAMP_MS         2000  /* 0 -> BENCH_THRUST ramp */
+#define BENCH_RAMP_STEPS        40
+#define BENCH_HOLD_MS        45000  /* time held at BENCH_THRUST */
+
 /* Private variable */
 static bool selftestPassed;
 static uint8_t dumpAssertInfo = 0;
@@ -244,16 +271,16 @@ void Gget_Ranging()
             MDev[DevAddr[k]].platform.address = DevAddr[k];
             vl53l8cx_get_ranging_data(&MDev[DevAddr[k]], &Results);
 
-            int32_t tofTotal = 0;
-            for (int z = 0; z < 16; z++)
-            {
-                int16_t dist = Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * z];
-                uint8_t st = Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * z];
-                vl53l8cxToFDist[DevAddr[k]][z] = dist;
-                vl53l8cxToFStatus[DevAddr[k]][z] = st;
-                tofTotal += dist;
-            }
-            vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
+            // int32_t tofTotal = 0;
+            // for (int z = 0; z < 16; z++)
+            // {
+            //     int16_t dist = Results.distance_mm[VL53L8CX_NB_TARGET_PER_ZONE * z];
+            //     uint8_t st = Results.target_status[VL53L8CX_NB_TARGET_PER_ZONE * z];
+            //     vl53l8cxToFDist[DevAddr[k]][z] = dist;
+            //     vl53l8cxToFStatus[DevAddr[k]][z] = st;
+            //     tofTotal += dist;
+            // }
+            // vl53l8cxToFAvg[DevAddr[k]] = tofTotal / 16.0f;
 
             // led_debug(200, (DevAddr[k] + 1) * 5, LED_BLUE_L);
         }
@@ -313,28 +340,52 @@ void vl53l8cxGetTofTask(void *param){
 
 void flightTask(void *param)
 {
-  /* Simple scripted flight: wait for system start, takeoff, hover 3s, land */
+  /* Fixed-thrust bench run -- see the SAFETY block at the top of this file. */
   systemWaitStart();
-  /* short delay to let other subsystems initialize */
   ledClearAll();
   led_debug(1000, 5, LED_BLUE_L);
 
-  /* Arm the system before flight. Brushless platforms (e.g. CF2.1 Brushless)
-   * require explicit arming before the motors will spin; brushed platforms
-   * also accept the request. Wait until arming succeeds. */
+  /* motorPowerSet.enable == 3 feeds motorPowerSet.m1 to ALL FOUR motors
+   * through motorsCompensateBatteryVoltage(), which is exactly what the
+   * stabilizer does with control.thrust when roll/pitch/yaw are zero. So
+   * m1 here is a THRUST command (0 - 65535), not a raw PWM value.
+   * (enable == 1 would write m1..m4 as raw PWM, bypassing the compensation.) */
+  paramVarId_t idMotEnable = paramGetVarId("motorPowerSet", "enable");
+  paramVarId_t idMotM1 = paramGetVarId("motorPowerSet", "m1");
+
+  uint32_t target = BENCH_THRUST;
+  if (target > MAX_THRUST) {
+    target = MAX_THRUST;
+  }
+
+  // DEBUG_PRINT("BENCH: starting in %d ms, thrust=%lu\n",
+  //             BENCH_START_DELAY_MS, (unsigned long)target);
+  vTaskDelay(pdMS_TO_TICKS(BENCH_START_DELAY_MS));
+
+  /* Brushless ESCs will not accept a throttle command until armed. */
   while (!supervisorIsArmed()) {
     supervisorRequestArming(true);
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 
-  // /* Takeoff to 0.5 m over 1.0 s */
-  // crtpCommanderHighLevelTakeoff(0.5f, 1.0f);
+  /* Ramp up, so the frame is not kicked by a step input. */
+  paramSetInt(idMotM1, MIN_THRUST);
+  paramSetInt(idMotEnable, 3);
+  for (uint32_t i = 1; i <= BENCH_RAMP_STEPS; i++) {
+    paramSetInt(idMotM1, (int)(target * i / BENCH_RAMP_STEPS));
+    vTaskDelay(pdMS_TO_TICKS(BENCH_RAMP_MS / BENCH_RAMP_STEPS));
+  }
 
-  // /* Hover for 3 seconds */
-  // vTaskDelay(pdMS_TO_TICKS(6000));
+  vTaskDelay(pdMS_TO_TICKS(BENCH_HOLD_MS));
 
-  // /* Land to ground (0.0 m) over 1.0 s */
-  // crtpCommanderHighLevelLand(0.0f, 1.0f);
+  /* Ramp down and hand the motors back to the stabilizer. */
+  for (uint32_t i = BENCH_RAMP_STEPS; i > 0; i--) {
+    paramSetInt(idMotM1, (int)(target * i / BENCH_RAMP_STEPS));
+    vTaskDelay(pdMS_TO_TICKS(BENCH_RAMP_MS / BENCH_RAMP_STEPS));
+  }
+  paramSetInt(idMotM1, MIN_THRUST);
+  paramSetInt(idMotEnable, 0);
+  supervisorRequestArming(false);
 
   vTaskDelete(NULL);
 }
@@ -411,93 +462,93 @@ void systemTask(void *arg)
   systemRequestNRFVersion();
 
   //Test the modules
-  DEBUG_PRINT("About to run tests in system.c.\n");
+  // DEBUG_PRINT("About to run tests in system.c.\n");
   if (systemTest() == false) {
     pass = false;
-    DEBUG_PRINT("system [FAIL]\n");
+    // DEBUG_PRINT("system [FAIL]\n");
   }
   if (configblockTest() == false) {
     pass = false;
-    DEBUG_PRINT("configblock [FAIL]\n");
+    // DEBUG_PRINT("configblock [FAIL]\n");
   }
   if (storageTest() == false) {
     pass = false;
-    DEBUG_PRINT("storage [FAIL]\n");
+    // DEBUG_PRINT("storage [FAIL]\n");
   }
   if (commTest() == false) {
     pass = false;
-    DEBUG_PRINT("comm [FAIL]\n");
+    // DEBUG_PRINT("comm [FAIL]\n");
   }
   if (commanderTest() == false) {
     pass = false;
-    DEBUG_PRINT("commander [FAIL]\n");
+    // DEBUG_PRINT("commander [FAIL]\n");
   }
   if (stabilizerTest() == false) {
     pass = false;
-    DEBUG_PRINT("stabilizer [FAIL]\n");
+    // DEBUG_PRINT("stabilizer [FAIL]\n");
   }
 
   #ifdef CONFIG_ESTIMATOR_KALMAN_ENABLE
   if (estimatorKalmanTaskTest() == false) {
     pass = false;
-    DEBUG_PRINT("estimatorKalmanTask [FAIL]\n");
+    // DEBUG_PRINT("estimatorKalmanTask [FAIL]\n");
   }
   #endif
 
   #ifdef CONFIG_ESTIMATOR_UKF_ENABLE
   if (errorEstimatorUkfTaskTest() == false) {
     pass = false;
-    DEBUG_PRINT("estimatorUKFTask [FAIL]\n");
+    // DEBUG_PRINT("estimatorUKFTask [FAIL]\n");
   }
   #endif
   
   if (deckTest() == false) {
     pass = false;
-    DEBUG_PRINT("deck [FAIL]\n");
+    // DEBUG_PRINT("deck [FAIL]\n");
     led_debug(2000, 2, LED_BLUE_L);
   }
   if (soundTest() == false) {
     pass = false;
-    DEBUG_PRINT("sound [FAIL]\n");
+    // DEBUG_PRINT("sound [FAIL]\n");
     // led_debug(2000, 1, LED_BLUE_L);
   }
   if (memTest() == false) {
     pass = false;
-    DEBUG_PRINT("mem [FAIL]\n");
+    // DEBUG_PRINT("mem [FAIL]\n");
     // led_debug(2000, 1, LED_BLUE_L);
   }
   if (crtpMemTest() == false) {
     pass = false;
-    DEBUG_PRINT("CRTP mem [FAIL]\n");
+    // DEBUG_PRINT("CRTP mem [FAIL]\n");
     // led_debug(2000, 1, LED_BLUE_L);
   }
   if (watchdogNormalStartTest() == false) {
     pass = false;
-    DEBUG_PRINT("watchdogNormalStart [FAIL]\n");
+    // DEBUG_PRINT("watchdogNormalStart [FAIL]\n");
     // led_debug(2000, 1, LED_BLUE_L);
   }
   if (cfAssertNormalStartTest() == false) {
     pass = false;
-    DEBUG_PRINT("cfAssertNormalStart [FAIL]\n");
+    // DEBUG_PRINT("cfAssertNormalStart [FAIL]\n");
     // led_debug(2000, 1, LED_BLUE_L);
   }
   if (peerLocalizationTest() == false) {
     pass = false;
-    DEBUG_PRINT("peerLocalization [FAIL]\n");
+    // DEBUG_PRINT("peerLocalization [FAIL]\n");
     // led_debug(2000, 1, LED_BLUE_L);
   }
   
   //Start the firmware
   if(pass)
   {
-    DEBUG_PRINT("Self test passed!\n");
+    // DEBUG_PRINT("Self test passed!\n");
     selftestPassed = 1;
     systemStart();
     soundSetEffect(SND_STARTUP);
     ledseqRun(&seq_alive);
     ledseqRun(&seq_testPassed);
 
-    // xTaskCreate(flightTask, "FlightTask", 256, NULL, FLOW_TASK_PRI, NULL);
+    xTaskCreate(flightTask, "FlightTask", 512, NULL, FLOW_TASK_PRI, NULL);
   }
   else
   {
@@ -511,7 +562,7 @@ void systemTask(void *arg)
         // System can be forced to start by setting the param to 1 from the cfclient
         if (selftestPassed)
         {
-	        DEBUG_PRINT("Start forced.\n");
+	        // DEBUG_PRINT("Start forced.\n");
           systemStart();
           break;
         }
@@ -523,7 +574,7 @@ void systemTask(void *arg)
       ledSet(SYS_LED, true);
     }
   }
-  DEBUG_PRINT("Free heap: %d bytes\n", xPortGetFreeHeapSize());
+  // DEBUG_PRINT("Free heap: %d bytes\n", xPortGetFreeHeapSize());
 
   // Notify the nRF51 that we are ready to receive radio packets
   // This is done after systemStart() to ensure all services
@@ -594,7 +645,7 @@ void systemSyslinkReceive(SyslinkPacket *slp)
       len = sizeof(nrf_version) - 1;
     }
     memcpy(&nrf_version, &slp->data[0], len );
-    DEBUG_PRINT("NRF51 version: %s\n", nrf_version);
+    // DEBUG_PRINT("NRF51 version: %s\n", nrf_version);
   }
 }
 
@@ -697,6 +748,6 @@ LOG_ADD(LOG_INT8, testLogParam, &testLogParam)
 /**
  * @brief Gget_Ranging() の所要時間 [us] (vl53l8cxGetTofTask内で計測)
  */
-// LOG_ADD(LOG_UINT32, rangingUs, &vl53l8cxRangingUs)
+LOG_ADD(LOG_UINT32, rangingUs, &vl53l8cxRangingUs)
 
 LOG_GROUP_STOP(sys)

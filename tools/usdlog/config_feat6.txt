@@ -1,0 +1,90 @@
+# docs/feat#6/experiment.md 専用の uSD ログ設定。
+#
+# 測るのは (1) CPU 稼働時間の割合 と (2) メモリ消費量推移 の 2 つだけなので、
+# IMU / 気圧 / flow / ToF の測距値 / 姿勢 / 位置推定 / モータ出力は一切入れない。
+#
+# 条件: vl53l8cx deck 5Hz・10Hz x センサ 1・6・11 個 + deck 無しの 7 通り。
+# deck の条件はファーム側 (vl53l8cxGetTofTask の xPeriod と vl53l8cx_NUM_SENSORS)
+# で決めるので、このファイルは全条件で共通のまま使える。
+#
+# 変数 54 個 (上限 128/イベント)、1 サンプル約 170 byte、20Hz で約 3.4 kB/s。
+1      # version
+4096   # buffer size in bytes
+feat6  # file name
+1      # enable on startup (0/1)
+on:fixedFrequency
+20     # frequency (Hz) -- rangingUs は最速 10Hz 更新なので 20Hz で取りこぼさない
+2      # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
+
+# --- 1. vl53l8cx の ranging 1 回あたりの CPU 時間 ---------------------------
+# Gget_Ranging() の前後で進んだ時間 [us]。deck 単体の CPU 占有率は
+#   rangingUs x 設定レート [Hz] / 1e6
+# で求まる (5Hz なら rangingUs/200000、10Hz なら rangingUs/100000)。
+# rangingUs が公称周期 (5Hz:200000us / 10Hz:100000us) を超えていたら
+# ranging が周期に収まっておらず、設定レートが実際には出ていない。
+# タスク全体 (SPI 開始/終了を含む) の占有は taskload.VL53L8CX 側で見る。
+sys.rangingUs
+
+# --- 1. システム全体の CPU 稼働率 ------------------------------------------
+# cpuLoad = 100*(1-idle) [%], total = 全タスクの合計 [us], period = 実測区間長 [us]
+# 各タスクの値は直前の区間で消費した CPU 時間 [us]。taskload.periodMs は
+# 既定 1000ms なので、20Hz 記録はオーバーサンプリング (値は同じものが並ぶ)
+taskload.cpuLoad
+taskload.total
+taskload.period
+taskload.VL53L8CX
+taskload.IDLE
+taskload.USDLOG
+taskload.USDWRITE
+taskload.STABILIZER
+taskload.KALMAN
+taskload.SENSORS
+taskload.PWRMGNT
+taskload.CMDHL
+taskload.APP
+taskload.FLOW
+taskload.ZRANGER2
+taskload.SYSTEM
+taskload.CRTP_TX
+taskload.CRTP_RX
+taskload.SYSLINK
+taskload.USBLINK
+taskload.LOGT
+taskload.PARAM
+taskload.MEM
+taskload.WORKER
+taskload.PLATFORM
+taskload.CRTP_SRV
+
+# --- 2. メモリ消費量推移 ----------------------------------------------------
+# heapFree/heapMin: FreeRTOS ヒープの残量と起動以降の最小値 [byte]
+# stackMin/stackMinId: 全タスク中の最小スタック残量 [byte] とそのタスク番号
+memload.heapFree
+memload.heapMin
+memload.stackMin
+memload.stackMinId
+
+# 各タスクのスタック残量 [byte] (起動以降の最小値、単調減少)
+taskstack.VL53L8CX
+taskstack.USDLOG
+taskstack.USDWRITE
+taskstack.STABILIZER
+taskstack.KALMAN
+taskstack.SENSORS
+taskstack.PWRMGNT
+taskstack.CMDHL
+taskstack.APP
+taskstack.FLOW
+taskstack.ZRANGER2
+taskstack.SYSTEM
+taskstack.CRTP_TX
+taskstack.CRTP_RX
+taskstack.SYSLINK
+taskstack.USBLINK
+taskstack.LOGT
+taskstack.PARAM
+taskstack.MEM
+taskstack.WORKER
+taskstack.PLATFORM
+taskstack.CRTP_SRV
+taskstack.IDLE

@@ -29,6 +29,9 @@ motion.squal
 motion.std
 motion.loopUs
 sys.rangingUs
+sys.rangingPerUs
+sys.rangingMaxUs
+sys.rangingCnt
 vl53l8cx_s0.d0
 vl53l8cx_s0.d1
 vl53l8cx_s0.d2

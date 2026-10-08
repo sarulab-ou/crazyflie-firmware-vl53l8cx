@@ -5,6 +5,10 @@ tasklog   # file name
 on:fixedFrequency
 10       # frequency (Hz) -- taskload updates at 1 Hz, 10 Hz oversamples plenty
 2      # mode (0: disabled, 1: synchronous stabilizer, 2: asynchronous)
+sys.rangingUs
+sys.rangingPerUs
+sys.rangingMaxUs
+sys.rangingCnt
 taskload.cpuLoad
 taskload.total
 taskload.period

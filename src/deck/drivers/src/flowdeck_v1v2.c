@@ -90,7 +90,7 @@ static void flowdeckTask(void *param)
 
   uint64_t lastTime  = usecTimestamp();
   while(1) {
-    vTaskDelay(100);
+    vTaskDelay(10);
     uint64_t loopStart = usecTimestamp();
     pmw3901ReadMotion(NCS_PIN, &currentMotion);
     // squal(路面の特徴量)が0ならフローが取れていないので赤、取れていれば緑

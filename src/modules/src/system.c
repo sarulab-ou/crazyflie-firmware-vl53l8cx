@@ -122,6 +122,11 @@ static char nrf_version[16];
 static uint8_t testLogParam;
 static uint8_t doAssert;
 
+
+static bool vl53l8cxCorrectedRangingUs = 0;  /* Gget_Ranging() の所要時間 [us] (vl53l8cxGetTofTask内で計測) */
+/* Gget_Ranging() の所要時間[us]。vl53l8cxGetTofTask で計測し SD/ログに出す。 */
+uint32_t vl53l8cxRangingUs = 0;
+
 STATIC_MEM_TASK_ALLOC(systemTask, SYSTEM_TASK_STACKSIZE);
 
 /* System wide synchronisation */
@@ -236,9 +241,8 @@ int Ranging_Basic_init(uint16_t DevAddr, VL53L8CX_Configuration* Dev)
     }
 }
 
-uint8_t DevAddr[11];
-/* Gget_Ranging() の所要時間[us]。vl53l8cxGetTofTask で計測し SD/ログに出す。 */
-uint32_t vl53l8cxRangingUs = 0;
+uint8_t DevAddr[11];  // Sensor address for multiple sensors
+
 void Gget_Ranging()
 {
     // uint8_t status, loop, isAlive, isReady;
@@ -327,14 +331,17 @@ void vl53l8cxGetTofTask(void *param){
     xSemaphoreGive(vl53l8cxGetTofDoneSem);
     // 正確に10Hzで回すため、処理時間を吸収する vTaskDelayUntil を使う
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xPeriod = pdMS_TO_TICKS(200);  // 5Hz
+    const TickType_t xPeriod = pdMS_TO_TICKS(vl53l8cx_deck_interval);  // 10Hz
+
+    systemWaitStart();
     while(1){
         spiBeginTransaction(SPI_BAUDRATE_2MHZ);
         uint64_t rangingStart = usecTimestamp();
         Gget_Ranging();
         vl53l8cxRangingUs = (uint32_t)(usecTimestamp() - rangingStart);
         spiEndTransaction();
-        vTaskDelayUntil(&xLastWakeTime, xPeriod);  // 前回起床から200ms周期
+        vTaskDelayUntil(&xLastWakeTime, xPeriod);  // 前回起床から100ms周期
+        vl53l8cxCorrectedRangingUs = vl53l8cxRangingUs > vl53l8cx_deck_interval * 1000 ? 1 : 0;
     }
 }
 
@@ -749,5 +756,6 @@ LOG_ADD(LOG_INT8, testLogParam, &testLogParam)
  * @brief Gget_Ranging() の所要時間 [us] (vl53l8cxGetTofTask内で計測)
  */
 LOG_ADD(LOG_UINT32, rangingUs, &vl53l8cxRangingUs)
+LOG_ADD(LOG_UINT8, isCorrectedRangingUs, &vl53l8cxCorrectedRangingUs)
 
 LOG_GROUP_STOP(sys)
